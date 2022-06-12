@@ -1,15 +1,59 @@
-import argparse
-import copy
-import csv
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 import json
-import logging
 import os
 import pprint
 import re
+import subprocess
 
-import coloredlogs
-from benchmark import *
-from perf_utils import *
+from benchmark import (
+    FAIL_MODEL_FILE,
+    LATENCY_FILE,
+    OP_METRICS_FILE,
+    SESSION_FILE,
+    add_improvement_information,
+    logger,
+    parse_arguments,
+    parse_models_helper,
+    read_map_from_file,
+    setup_logger,
+    update_fail_model_map,
+    write_map_to_file,
+)
+from perf_utils import (
+    acl,
+    cpu,
+    csv_ending,
+    cuda,
+    cuda_ep,
+    cuda_fp16,
+    fail_name,
+    get_output,
+    get_system_info,
+    latency_name,
+    op_metrics_name,
+    pretty_print,
+    session_name,
+    specs_name,
+    standalone_trt,
+    standalone_trt_fp16,
+    status_name,
+    success_name,
+    trt,
+    trt_ep,
+    trt_fp16,
+)
+from write_csv import (
+    build_status,
+    output_fail,
+    output_latency,
+    output_metrics,
+    output_session_creation,
+    output_specs,
+    output_status,
+)
 
 
 def write_model_info_to_file(model, path):
@@ -65,7 +109,7 @@ def main():
     model_to_fail_ep = {}
 
     benchmark_fail_csv = fail_name + csv_ending
-    benchmark_metrics_csv = metrics_name + csv_ending
+    benchmark_metrics_csv = op_metrics_name + csv_ending
     benchmark_success_csv = success_name + csv_ending
     benchmark_latency_csv = latency_name + csv_ending
     benchmark_status_csv = status_name + csv_ending
@@ -156,8 +200,8 @@ def main():
         logger.info("=========== Models/EPs metrics ==========")
         logger.info("=========================================")
 
-        if os.path.exists(METRICS_FILE):
-            model_to_metrics = read_map_from_file(METRICS_FILE)
+        if os.path.exists(OP_METRICS_FILE):
+            model_to_metrics = read_map_from_file(OP_METRICS_FILE)
             output_metrics(model_to_metrics, os.path.join(path, benchmark_metrics_csv))
             logger.info("\nSaved model metrics results to {}".format(benchmark_metrics_csv))
 
@@ -217,10 +261,13 @@ def main():
     logger.info("\n===========================================")
     logger.info("=========== System information  ===========")
     logger.info("===========================================")
-    info = get_system_info(args)
+    info = get_system_info(args.workspace)
     pretty_print(pp, info)
     logger.info("\n")
-    output_specs(info, os.path.join(path, specs_csv))
+
+    ep_option_overrides = {trt_ep: args.trt_ep_options, cuda_ep: args.cuda_ep_options}
+
+    output_specs(info, ep_option_overrides, os.path.join(path, specs_csv))
     logger.info("\nSaved hardware specs to {}".format(specs_csv))
 
 

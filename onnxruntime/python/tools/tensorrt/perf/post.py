@@ -23,6 +23,8 @@ from perf_utils import (
     memory_ending,
     memory_name,
     model_title,
+    op_metrics_columns,
+    op_metrics_name,
     ort_provider_list,
     provider_list,
     second,
@@ -234,6 +236,25 @@ def get_session(session, model_group):
     return session
 
 
+def get_op_metrics(op_metrics, model_group):
+    """
+    Returns a new Pandas table that contains operator usage and performance information.
+
+    :param op_metrics: The Pandas table containing operator usage and performance information.
+    :param model_group: The model group namespace to append as a column.
+
+    :return: The updated table.
+    """
+
+    csv_columns, db_columns = [], []
+
+    for _, csv_col, db_col in op_metrics_columns:
+        csv_columns.append(csv_col)
+        db_columns.append(db_col)
+
+    return adjust_columns(op_metrics, csv_columns, db_columns, model_group)
+
+
 def write_table(ingest_client, table, table_name, upload_time, identifier):
     """
     Uploads the provided table to the database. This function also appends the upload time and unique run identifier
@@ -305,6 +326,7 @@ def main():
             latency_over_time_name,
             specs_name,
             session_name,
+            op_metrics_name,
         ]
         table_results = {}
         for table_name in tables:
@@ -349,6 +371,11 @@ def main():
                     table_results[status_name] = table_results[status_name].append(
                         get_status(table, model_group), ignore_index=True
                     )
+                elif op_metrics_name in csv:
+                    table_results[op_metrics_name] = table_results[op_metrics_name].append(
+                        get_op_metrics(table, model_group), ignore_index=True
+                    )
+
             os.chdir(result_file)
         for table in tables:
             print("writing " + table + " to database")

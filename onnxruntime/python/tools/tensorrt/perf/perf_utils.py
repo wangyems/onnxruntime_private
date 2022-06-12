@@ -1,11 +1,11 @@
+# -------------------------------------------------------------------------
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT License.
+# --------------------------------------------------------------------------
 import json
-import logging
-import pprint
 import re
 import subprocess
 import sys
-
-import coloredlogs
 
 debug = False
 debug_verbose = False
@@ -27,7 +27,7 @@ standalone_trt_fp16 = "TRTFp16"
 acl = "ORT-ACLFp32"
 
 # table names
-metrics_name = "metrics"
+op_metrics_name = "op_metrics"
 success_name = "success"
 fail_name = "fail"
 memory_name = "memory"
@@ -40,6 +40,19 @@ session_name = "session"
 # column names
 model_title = "Model"
 group_title = "Group"
+
+# List of column name tuples for operator metrics: (<map_key>, <csv_column>, <db_column>)
+op_metrics_columns = [
+    ("model_name", "Model", "Model"),
+    ("input_ep", "Input EP", "InputEP"),
+    ("operator", "Operator", "Operator"),
+    ("assigned_ep", "Assigned EP", "AssignedEP"),
+    ("event_category", "Event Category", "EventCategory"),
+    ("num_instances", "Num Instances", "NumInstances"),
+    ("total_dur", "Total Duration", "TotalDuration"),
+    ("min_dur", "Min Duration", "MinDuration"),
+    ("max_dur", "Max Duration", "MaxDuration"),
+]
 
 # endings
 second = "_second"
@@ -91,197 +104,268 @@ def pretty_print(pp, json_object):
     sys.stdout.flush()
 
 
-def parse_single_file(f):
+def split_and_sort_output(string_list):
+    string_list = string_list.split("\n")
+    string_list.sort()
+    return string_list
 
-    try:
-        data = json.load(f)
-    except Exception as e:
-        return None
 
-    model_run_flag = False
-    first_run_flag = True
-    provider_op_map = {}  # ep -> map of operator to duration
-    provider_op_map_first_run = {}  # ep -> map of operator to duration
+def find_files(path, name_pattern, are_dirs=False):
+    """
+    Finds files that match the given name pattern within the given path.
 
-    for row in data:
-        if not "cat" in row:
+    :param path: The path in which to search for files.
+    :param name_pattern: Glob pattern (e.g., *.py) used to search for files.
+    :param are_dirs: True if function should find directories instead of regular files.
+
+    :return: A list of the found file path names.
+    """
+
+    files = []
+
+    cmd = ["find", path, "-name", name_pattern]
+    if are_dirs:
+        cmd += ["-type", "d"]
+
+    files_str = get_output(cmd)
+    if files_str:
+        files = files_str.split("\n")
+
+    return files
+
+
+def get_cuda_version():
+    nvidia_strings = get_output(["nvidia-smi"])
+    version = re.search(r"CUDA Version: \d\d\.\d", nvidia_strings).group(0)
+    return version
+
+
+def get_trt_version(workspace):
+    libnvinfer = get_output(["find", workspace, "-name", "libnvinfer.so.*"])
+    nvinfer = re.search(r".*libnvinfer.so.*", libnvinfer).group(0)
+    trt_strings = get_output(["nm", "-D", nvinfer])
+    version = re.search(r"tensorrt_version.*", trt_strings).group(0)
+    return version
+
+
+def get_linux_distro():
+    linux_strings = get_output(["cat", "/etc/os-release"])
+    stdout = linux_strings.split("\n")[:2]
+    infos = []
+    for row in stdout:
+        row = re.sub("=", ":  ", row)
+        row = re.sub('"', "", row)
+        infos.append(row)
+    return infos
+
+
+def get_memory_info():
+    mem_strings = get_output(["cat", "/proc/meminfo"])
+    stdout = mem_strings.split("\n")
+    infos = []
+    for row in stdout:
+        if "Mem" in row:
+            row = re.sub(": +", ":  ", row)
+            infos.append(row)
+    return infos
+
+
+def get_cpu_info():
+    cpu_strings = get_output(["lscpu"])
+    stdout = cpu_strings.split("\n")
+    infos = []
+    for row in stdout:
+        if "mode" in row or "Arch" in row or "name" in row:
+            row = re.sub(": +", ":  ", row)
+            infos.append(row)
+    return infos
+
+
+def get_gpu_info():
+    info = get_output(["lspci", "-v"])
+    infos = re.findall("NVIDIA.*", info)
+    return infos
+
+
+def get_cudnn_version(workspace):
+    cudnn_path = get_output(["whereis", "cudnn_version.h"])
+    cudnn_path = re.search(": (.*)", cudnn_path).group(1)
+    cudnn_outputs = get_output(["cat", cudnn_path])
+    major = re.search("CUDNN_MAJOR (.*)", cudnn_outputs).group(1)
+    minor = re.search("CUDNN_MINOR (.*)", cudnn_outputs).group(1)
+    patch = re.search("CUDNN_PATCHLEVEL (.*)", cudnn_outputs).group(1)
+    cudnn_version = major + "." + minor + "." + patch
+    return cudnn_version
+
+
+def get_system_info(root_dir):
+    info = {}
+    info["cuda"] = get_cuda_version()
+    info["trt"] = get_trt_version(root_dir)
+    info["cudnn"] = get_cudnn_version(root_dir)
+    info["linux_distro"] = get_linux_distro()
+    info["cpu_info"] = get_cpu_info()
+    info["gpu_info"] = get_gpu_info()
+    info["memory"] = get_memory_info()
+
+    return info
+
+
+def get_profile_model_runs(profile_entries):
+    """
+    Parses in-memory session profile data and returns all 'model run' entries.
+
+    :param profile_entries: A list of session profile entries.
+
+    :return: A list of model run entries.
+    """
+
+    model_run_info = []
+
+    for entry in profile_entries:
+        if entry["cat"] == "Session" and entry["name"] == "model_run":
+            model_run_info.append(entry)
+
+    return model_run_info
+
+
+def add_op_map_entry(provider_op_map, provider, op_name, duration):
+    """
+    Adds an operator usage data point to a dictionary that tracks operator usage per EP.
+
+    :param provider_op_map: Dictionary that tracks operator usage per EP.
+    :param provider: The EP for which to add a new operator usage data point.
+    :param op_name: The name of the operator.
+    :param duration: The execution duration (in microseconds) of the operator.
+    """
+
+    if provider not in provider_op_map:
+        provider_op_map[provider] = {}
+
+    op_map = provider_op_map[provider]
+
+    if op_name not in op_map:
+        op_map[op_name] = {
+            "num_instances": 1,
+            "total_dur": duration,
+            "min_dur": duration,
+            "max_dur": duration,
+            "subgraph": {},
+        }
+    else:
+        op_info = op_map[op_name]
+
+        op_info["num_instances"] += 1
+        op_info["total_dur"] += duration
+        op_info["min_dur"] = min(duration, op_info["min_dur"])
+        op_info["max_dur"] = max(duration, op_info["max_dur"])
+
+
+def parse_model_run(profile_entries, target_model_run):
+    """
+    Parses profile data to obtain operator usage information for the given 'model run'.
+
+    :param profile_entries: List of profile data entries.
+    :param target_model_run: Time range information on the model run to parse.
+
+    :return: A tuple containing the parsed operator usage information for CPU nodes and GPU kernels.
+    """
+
+    provider_node_op_map = {}  # ep -> map of node operator info
+    provider_kernel_op_map = {}  # ep -> map of kernel operator info
+    model_run_start = target_model_run["ts"]
+    model_run_end = model_run_start + target_model_run["dur"]
+
+    # Used to track the previous CPU node that launched kernel(s).
+    prev_node = {}
+
+    for entry in profile_entries:
+        entry_start = entry["ts"]
+        entry_end = entry_start + entry["dur"]
+
+        # Skip entries that end before the target model run.
+        if entry_end < model_run_start:
+            prev_node = {}
             continue
 
-        if row["cat"] == "Session":
-            if "name" in row and row["name"] == "model_run":
-                if not first_run_flag:
-                    break
+        # Stop if we encounter entries that start after the target model run ends.
+        if entry_start > model_run_end:
+            break
 
-                model_run_flag = True
-                first_run_flag = False
+        assert (entry_start >= model_run_start) and (entry_end <= model_run_end)
 
-        elif row["cat"] == "Node":
-            if "name" in row and "args" in row and re.search(".*kernel_time", row["name"]):
-                args = row["args"]
+        if (not "cat" in entry) or (not "name" in entry) or (not "args" in entry) or (not "op_name" in entry["args"]):
+            prev_node = {}
+            continue
 
-                if not "op_name" in args or not "provider" in args:
-                    continue
+        # Parse a graph node. The node's duration represents execution time on a CPU thread (regardless of EP).
+        if entry["cat"] == "Node":
+            prev_node = {}
 
-                provider = args["provider"]
+            if re.search(".*kernel_time", entry["name"]) and ("provider" in entry["args"]):
+                entry_args = entry["args"]
+                add_op_map_entry(provider_node_op_map, entry_args["provider"], entry_args["op_name"], entry["dur"])
+                prev_node = entry
 
-                if first_run_flag:
-                    if provider not in provider_op_map_first_run:
-                        provider_op_map_first_run[provider] = {}
+        # Parse a GPU kernel that was launched by a previous node. Kernels only run on TensorRT or CUDA EPs.
+        elif entry["cat"] == "Kernel" and prev_node:
+            add_op_map_entry(
+                provider_kernel_op_map, prev_node["args"]["provider"], entry["args"]["op_name"], entry["dur"]
+            )
+        else:
+            prev_node = {}
 
-                    op_map = provider_op_map_first_run[provider]
-
-                    if row["name"] in op_map:
-                        provider_op_map[provider] = {}
-                        op_map = provider_op_map[provider]
-                        op_map[row["name"]] = row["dur"]
-                        provider_op_map[provider] = op_map
-                    else:
-                        op_map[row["name"]] = row["dur"]
-                        provider_op_map_first_run[provider] = op_map
-                else:
-                    if provider not in provider_op_map:
-                        provider_op_map[provider] = {}
-
-                    op_map = provider_op_map[provider]
-
-                    # avoid duplicated metrics
-                    if not row["name"] in op_map:
-                        op_map[row["name"]] = row["dur"]
-                        provider_op_map[provider] = op_map
-
-    if debug_verbose:
-        pprint._sorted = lambda x: x
-        pprint.sorted = lambda x, key=None: x
-        pp = pprint.PrettyPrinter(indent=4)
-        print("------First run ops map (START)------")
-        for key, map in provider_op_map_first_run.items():
-            print(key)
-            pp.pprint({k: v for k, v in sorted(map.items(), key=lambda item: item[1], reverse=True)})
-
-        print("------First run ops map (END) ------")
-        print("------Second run ops map (START)------")
-        for key, map in provider_op_map.items():
-            print(key)
-            pp.pprint({k: v for k, v in sorted(map.items(), key=lambda item: item[1], reverse=True)})
-        print("------Second run ops map (END) ------")
-
-    if model_run_flag:
-        return provider_op_map
-
-    return None
+    return (provider_node_op_map, provider_kernel_op_map)
 
 
-def calculate_cuda_op_percentage(cuda_op_map):
-    if not cuda_op_map or len(cuda_op_map) == 0:
-        return 0
+def parse_session_profile(profile):
+    """
+    Parses a JSON profile file and returns information on operator usage per EP.
 
-    cuda_ops = 0
-    cpu_ops = 0
-    for key, value in cuda_op_map.items():
-        if key == "CUDAExecutionProvider":
-            cuda_ops += len(value)
+    :param profile: The file handle for the profile to parse.
 
-        if key == "CPUExecutionProvider":
-            cpu_ops += len(value)
+    :return: A tuple containing the parsed operator usage information for CPU nodes and GPU kernels.
+    """
 
-    return cuda_ops / (cuda_ops + cpu_ops)
+    try:
+        profile_entries = json.load(profile)
+    except Exception:
+        return None
 
+    # Get information on where each model run starts and ends.
+    model_runs = get_profile_model_runs(profile_entries)
 
-##########################################
-# Return: total ops executed in TRT,
-#         total ops,
-#         ratio of ops executed in TRT,
-##########################################
-def calculate_trt_op_percentage(trt_op_map, cuda_op_map):
-    # % of TRT ops
-    total_ops = 0
-    total_cuda_and_cpu_ops = 0
-    for ep in ["CUDAExecutionProvider", "CPUExecutionProvider"]:
-        if ep in cuda_op_map:
-            op_map = cuda_op_map[ep]
-            total_ops += len(op_map)
+    if not model_runs:
+        return None
 
-        if ep in trt_op_map:
-            op_map = trt_op_map[ep]
-            total_cuda_and_cpu_ops += len(op_map)
+    # Use the model run with the lowest total duration.
+    min_run = min(model_runs, key=lambda entry: entry["dur"])
 
-    if total_ops == 0:
-        print("Error ...")
-        raise
+    # Parse model run
+    op_maps = parse_model_run(profile_entries, min_run)
 
-    if len(trt_op_map) == 0:
-        total_cuda_and_cpu_ops = total_ops
-
-    #
-    # equation of % TRT ops:
-    # (total ops in cuda json - cuda and cpu ops in trt json)/ total ops in cuda json
-    #
-    ratio_of_ops_in_trt = (total_ops - total_cuda_and_cpu_ops) / total_ops
-    if debug:
-        print("total_cuda_and_cpu_ops: {}".format(total_cuda_and_cpu_ops))
-        print("total_ops: {}".format(total_ops))
-        print("ratio_of_ops_in_trt: {}".format(ratio_of_ops_in_trt))
-
-    return ((total_ops - total_cuda_and_cpu_ops), total_ops, ratio_of_ops_in_trt)
+    return op_maps
 
 
-def get_total_ops(op_map):
-    total_ops = 0
+def get_profile_metrics(path, profile_file_prefix, logger):
+    """
+    Parses a session profile file to obtain information on operator usage per EP.
 
-    for ep in ["CUDAExecutionProvider", "CPUExecutionProvider"]:
-        if ep in op_map:
-            total_ops += len(op_map[ep])
+    :param path: The path containing the session profile file.
+    :param profile_file_prefix: Custom prefix for session profile names. Refer to ORT SessionOptions.
+    :param logger: The logger object to use for debug/info logging.
 
-    return total_ops
+    :return: A tuple containing the parsed operator usage information for CPU nodes and GPU kernels.
+    """
 
+    logger.debug("Parsing/Analyzing profiling files in %s ...", path)
 
-##########################################
-# Return: total TRT execution time,
-#         total execution time,
-#         ratio of execution time in TRT
-##########################################
-def calculate_trt_latency_percentage(trt_op_map):
-    # % of TRT execution time
-    total_execution_time = 0
-    total_trt_execution_time = 0
-    for ep in [
-        "TensorrtExecutionProvider",
-        "CUDAExecutionProvider",
-        "CPUExecutionProvider",
-    ]:
-        if ep in trt_op_map:
-            op_map = trt_op_map[ep]
-
-            total_time = 0
-            for key, value in op_map.items():
-                total_time += int(value)
-
-            if ep == "TensorrtExecutionProvider":
-                total_trt_execution_time = total_time
-
-            total_execution_time += total_time
-
-    if total_execution_time == 0:
-        ratio_of_trt_execution_time = 0
-    else:
-        ratio_of_trt_execution_time = total_trt_execution_time / total_execution_time
-
-    if debug:
-        print("total_trt_execution_time: {}".format(total_trt_execution_time))
-        print("total_execution_time: {}".format(total_execution_time))
-        print("ratio_of_trt_execution_time: {}".format(ratio_of_trt_execution_time))
-
-    return (total_trt_execution_time, total_execution_time, ratio_of_trt_execution_time)
-
-
-def get_profile_metrics(path, profile_already_parsed, logger=None):
-    logger.info("Parsing/Analyzing profiling files in {} ...".format(path))
-    p1 = subprocess.Popen(
-        ["find", path, "-name", "onnxruntime_profile*", "-printf", "%T+\t%p\n"],
+    find_proc = subprocess.Popen(
+        ["find", path, "-name", f"{profile_file_prefix}*", "-printf", "%T+\t%p\n"],
         stdout=subprocess.PIPE,
     )
-    p2 = subprocess.Popen(["sort"], stdin=p1.stdout, stdout=subprocess.PIPE)
-    stdout, sterr = p2.communicate()
+    sort_proc = subprocess.Popen(["sort"], stdin=find_proc.stdout, stdout=subprocess.PIPE)
+    stdout, sterr = sort_proc.communicate()
     stdout = stdout.decode("ascii").strip()
     profiling_files = stdout.split("\n")
     logger.info(profiling_files)
@@ -289,18 +373,15 @@ def get_profile_metrics(path, profile_already_parsed, logger=None):
     data = []
     for profile in profiling_files:
         profile = profile.split("\t")[1]
-        if profile in profile_already_parsed:
-            continue
-        profile_already_parsed.add(profile)
 
-        logger.info("start to parse {} ...".format(profile))
-        with open(profile) as f:
-            op_map = parse_single_file(f)
-            if op_map:
-                data.append(op_map)
+        logger.debug("Parsing profile %s ...", profile)
+        with open(profile, encoding="utf-8") as file_handle:
+            op_maps = parse_session_profile(file_handle)
+            if op_maps and op_maps[0]:
+                data.append(op_maps)
 
     if len(data) == 0:
-        logger.info("No profile metrics got.")
+        logger.debug("No profile metrics found.")
         return None
 
     return data[-1]
