@@ -91,6 +91,8 @@ class BaseOpBuilder : public IOpBuilder {
         {"Exp", QNN_OP_ELEMENT_WISE_EXP},
         {"Floor", QNN_OP_ELEMENT_WISE_FLOOR},
         {"Gather", QNN_OP_GATHER},
+        {"GatherElements", QNN_OP_GATHER_ELEMENTS},
+        {"GatherND", QNN_OP_GATHER_ND},
         {"Greater", QNN_OP_ELEMENT_WISE_GREATER},
         {"GreaterOrEqual", QNN_OP_ELEMENT_WISE_GREATER_EQUAL},
         {"Less", QNN_OP_ELEMENT_WISE_LESS},
@@ -245,7 +247,6 @@ class BaseOpBuilder : public IOpBuilder {
                               const NodeUnit& node_unit,
                               Qnn_Scalar_t& axis_qnn_scalar,
                               int32_t& default_axis_value) const;
-  Qnn_TensorType_t GetInputTensorType(const QnnModelWrapper& qnn_model_wrapper, const std::string& input_name) const;
 
   size_t GetInputCountQnnRequired(const NodeUnit& node_unit) const {
     auto input_output_cout = GetInputOutputCountQnnRequired(node_unit.OpType());
@@ -281,6 +282,8 @@ class BaseOpBuilder : public IOpBuilder {
   const std::vector<size_t> nchw2hwcn_perm{2, 3, 1, 0};
   const std::vector<size_t> cnhw2hwcn_perm{2, 3, 0, 1};
 };
+
+Qnn_TensorType_t GetInputTensorType(const QnnModelWrapper& qnn_model_wrapper, const std::string& input_name);
 
 // Type that holds information about an ONNX attribute.
 template <typename ValType>

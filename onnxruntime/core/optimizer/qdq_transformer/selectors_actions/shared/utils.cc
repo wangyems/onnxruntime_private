@@ -29,6 +29,8 @@ void Selectors::RegisterSelector(const OpVersionsAndSelector::OpVersionsMap& ops
 /* static methods to return different operator's OpVersionMap */
 static const OpVersionsAndSelector::OpVersionsMap GetMiscOpVersionsMap() {
   return {{"Gather", {}},
+          {"GatherElements", {}},
+          {"GatherND", {}},
           {"Reshape", {}},
           {"Flatten", {}},
           {"Transpose", {}},

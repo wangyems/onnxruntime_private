@@ -247,7 +247,7 @@ Status BaseOpBuilder::ProcessAxisAttribute(const QnnModelWrapper& qnn_model_wrap
   return Status::OK();
 }
 
-Qnn_TensorType_t BaseOpBuilder::GetInputTensorType(const QnnModelWrapper& qnn_model_wrapper, const std::string& input_name) const {
+Qnn_TensorType_t GetInputTensorType(const QnnModelWrapper& qnn_model_wrapper, const std::string& input_name) {
   if (qnn_model_wrapper.IsInitializerInput(input_name)) {
     return QNN_TENSOR_TYPE_STATIC;
   } else if (qnn_model_wrapper.IsGraphInput(input_name)) {
