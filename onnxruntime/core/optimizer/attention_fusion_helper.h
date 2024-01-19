@@ -328,7 +328,7 @@ bool ValidateUnidirMask(const Graph& graph, const NodeArg& mask, bool& is_unidir
     if (!utils::GetSizeInBytesFromTensorProto<0>(*tensor_proto, &bytes).IsOK()) {
       return false;
     }
-    auto data = std::make_unique<uint8_t[]>(bytes);
+    auto data = std::unique_ptr<uint8_t[]>(new uint8_t[bytes]);  // std::make_unique_for_overwrite<uint8_t[]>(tensor_bytbytese_size)
     uint8_t* p = data.get();
     if (!utils::UnpackTensor<uint8_t>(
              *tensor_proto,
