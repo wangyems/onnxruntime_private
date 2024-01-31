@@ -132,8 +132,8 @@ export const createGroupedConvVectorizeProgramInfo =
       const outputShapeInShader = [outputShape[0], outputShape[1], outputShape[2], outputShape[3] / components];
 
       const programUniforms: ProgramUniform[] = [
-        {type: 'uint32', data: outputSize}, {type: 'int32', data: attributes.strides},
-        {type: 'int32', data: attributes.pads}, ...createTensorShapeVariables(xShape),
+        {type: 'uint32', data: outputSize}, {type: 'int32', data: [attributes.strides[0], attributes.strides[1]]},
+        {type: 'int32', data: [attributes.pads[0], attributes.pads[1]]}, ...createTensorShapeVariables(xShape),
         ...createTensorShapeVariables(wShape), ...createTensorShapeVariables(outputShapeInShader)
       ];
       const xNumber = (outputNumber - 1) * attributes.strides[1] + wShape[1];
@@ -173,7 +173,7 @@ export const createGroupedConvVectorizeProgramInfo =
     // Use constant instead of uniform can give better performance for w's height/width.
     for (var w_height: u32 = 0u; w_height < ${wShape[0]}; w_height++) {
       let x_height = x_corner.x + i32(w_height);
-      if (x_height >= 0 || u32(x_height) < uniforms.x_shape[1]) {
+      if (x_height >= 0 && u32(x_height) < uniforms.x_shape[1]) {
         for (var i = 0; i < ${xNumber}; i++) {
           let x_width = x_corner.y + i;
           if (x_width >= 0 && u32(x_width) < uniforms.x_shape[2]) {
@@ -185,7 +185,7 @@ export const createGroupedConvVectorizeProgramInfo =
         for (var w_width: u32 = 0u; w_width < ${wShape[1]}; w_width++) {
           let w_val = ${w.get('w_height', 'w_width', '0', 'output_channel')};
           for (var i = 0u; i < ${outputNumber}u; i++) {
-            values[i] = fma(x_vals[i * ${attributes.strides[1]}u + w_width], w_val, values[i]);
+            values[i] = fma(x_vals[i * u32(uniforms.strides[1]) + w_width], w_val, values[i]);
           }
         }
       }
