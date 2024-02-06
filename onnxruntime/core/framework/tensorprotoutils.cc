@@ -165,7 +165,8 @@ static Status GetExternalDataInfo(const ONNX_NAMESPACE::TensorProto& tensor_prot
 // This function does not unpack string_data of an initializer tensor
 Status ReadExternalDataForTensor(const ONNX_NAMESPACE::TensorProto& tensor_proto,
                                  const ORTCHAR_T* tensor_proto_dir,
-                                 std::unique_ptr<uint8_t[]>& unpacked_tensor, size_t& tensor_byte_size) {
+                                 std::unique_ptr<uint8_t[]>& unpacked_tensor,
+                                 size_t& tensor_byte_size) {
   std::basic_string<ORTCHAR_T> external_file_path;
   onnxruntime::FileOffsetType file_offset;
   SafeInt<size_t> safe_tensor_byte_size;
@@ -193,7 +194,9 @@ Status ReadExternalDataForTensor(const ONNX_NAMESPACE::TensorProto& tensor_proto
 // This function does not unpack string_data of an initializer tensor
 Status ReadExternalDataForTensor(const ONNX_NAMESPACE::TensorProto& tensor_proto,
                                  const ORTCHAR_T* tensor_proto_dir,
-                                 uint8_t* unpacked_tensor, std::unique_ptr<uint8_t[]>& unpacked_tensor_overflow, size_t& unpacked_tensor_byte_size) {
+                                 uint8_t* unpacked_tensor,
+                                 std::unique_ptr<uint8_t[]>& unpacked_tensor_overflow,
+                                 size_t& unpacked_tensor_byte_size) {
   std::basic_string<ORTCHAR_T> external_file_path;
   onnxruntime::FileOffsetType file_offset;
   SafeInt<size_t> safe_tensor_byte_size;
@@ -203,7 +206,6 @@ Status ReadExternalDataForTensor(const ONNX_NAMESPACE::TensorProto& tensor_proto
       external_file_path,
       file_offset,
       safe_tensor_byte_size));
-  //tensor_byte_size = safe_tensor_byte_size;
   
   if (unpacked_tensor_byte_size < safe_tensor_byte_size) {
     unpacked_tensor_byte_size = safe_tensor_byte_size;
@@ -1525,19 +1527,20 @@ template common::Status GetSizeInBytesFromTensorProto<0>(const ONNX_NAMESPACE::T
       element_count = initializer.DATA_SIZE();                                   \
       tensor_byte_size = element_count * sizeof(ELEMENT_TYPE);                   \
     }                                                                            \
-    /* unpacked_tensor.resize(tensor_byte_size);*/                                 \
-    unpacked_tensor = std::unique_ptr<uint8_t[]>(new uint8_t[tensor_byte_size]);  /* std::make_unique_for_overwrite<uint8_t[]>(tensor_byte_size); */        \
+    /* C++20: use std::make_unique_for_overwrite<uint8_t[]>(tensor_byte_size); */\
+    unpacked_tensor = std::unique_ptr<uint8_t[]>(new uint8_t[tensor_byte_size]); \
     return onnxruntime::utils::UnpackTensor(                                     \
         initializer,                                                             \
         initializer.has_raw_data() ? initializer.raw_data().data() : nullptr,    \
         initializer.has_raw_data() ? initializer.raw_data().size() : 0,          \
-        reinterpret_cast<ELEMENT_TYPE*>(unpacked_tensor.get()), element_count); \
+        reinterpret_cast<ELEMENT_TYPE*>(unpacked_tensor.get()), element_count);  \
     break;                                                                       \
   }
 
 Status UnpackInitializerData(const onnx::TensorProto& initializer,
                              const Path& model_path,
-                             std::unique_ptr<uint8_t[]>& unpacked_tensor, size_t& unpacked_tensor_bytesize) {
+                             std::unique_ptr<uint8_t[]>& unpacked_tensor,
+                             size_t& unpacked_tensor_bytesize) {
   // TODO, if std::vector does not use a custom allocator, the default std::allocator will
   // allocation the memory aligned to std::max_align_t, need look into allocating
   // forced aligned memory (align as 16 or larger)for unpacked_tensor
@@ -1578,7 +1581,8 @@ Status UnpackInitializerData(const onnx::TensorProto& initializer,
 #undef CASE_UNPACK
 
 Status UnpackInitializerData(const ONNX_NAMESPACE::TensorProto& initializer,
-                             std::unique_ptr<uint8_t[]>& unpacked_tensor, size_t& unpacked_tensor_size) {
+                             std::unique_ptr<uint8_t[]>& unpacked_tensor,
+                             size_t& unpacked_tensor_size) {
   ORT_RETURN_IF(initializer.data_location() == TensorProto_DataLocation_EXTERNAL,
                 "The given initializer contains external data");
   return UnpackInitializerData(initializer, Path(), unpacked_tensor, unpacked_tensor_size);
