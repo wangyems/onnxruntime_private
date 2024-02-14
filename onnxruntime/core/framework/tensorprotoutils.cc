@@ -178,7 +178,8 @@ Status ReadExternalDataForTensor(const ONNX_NAMESPACE::TensorProto& tensor_proto
       safe_tensor_byte_size));
   tensor_byte_size = safe_tensor_byte_size;
 
-  unpacked_tensor = std::unique_ptr<uint8_t[]>(new uint8_t[tensor_byte_size]); // std::make_unique_for_overwrite<uint8_t[]>(tensor_byte_size);
+  // TODO: C++20 replace with std::make_unique_for_overwrite<uint8_t[]>(tensor_byte_size);
+  unpacked_tensor = std::unique_ptr<uint8_t[]>(new uint8_t[tensor_byte_size]);
   ORT_RETURN_IF_ERROR(onnxruntime::Env::Default().ReadFileIntoBuffer(
       external_file_path.c_str(),
       file_offset,
@@ -206,10 +207,11 @@ Status ReadExternalDataForTensor(const ONNX_NAMESPACE::TensorProto& tensor_proto
       external_file_path,
       file_offset,
       safe_tensor_byte_size));
-  
+
   if (unpacked_tensor_byte_size < safe_tensor_byte_size) {
     unpacked_tensor_byte_size = safe_tensor_byte_size;
-    unpacked_tensor_overflow = std::unique_ptr<uint8_t[]>(new uint8_t[unpacked_tensor_byte_size]);// C++20: std::make_unique_for_overwrite<uint8_t[]>(tensor_byte_size);
+    // TODO: C++20 replace with std::make_unique_for_overwrite<uint8_t[]>(tensor_byte_size);
+    unpacked_tensor_overflow = std::unique_ptr<uint8_t[]>(new uint8_t[unpacked_tensor_byte_size]);
     unpacked_tensor = unpacked_tensor_overflow.get();
   }
 
@@ -1516,25 +1518,25 @@ template common::Status GetSizeInBytesFromTensorProto<kAllocAlignment>(const ONN
                                                                        size_t* out);
 template common::Status GetSizeInBytesFromTensorProto<0>(const ONNX_NAMESPACE::TensorProto& tensor_proto, size_t* out);
 
-#define CASE_UNPACK(TYPE, ELEMENT_TYPE, DATA_SIZE)                               \
-  case ONNX_NAMESPACE::TensorProto_DataType::TensorProto_DataType_##TYPE: {      \
-    SafeInt<size_t> tensor_byte_size;                                            \
-    size_t element_count = 0;                                                    \
-    if (initializer.has_raw_data()) {                                            \
-      tensor_byte_size = initializer.raw_data().size();                          \
-      element_count = tensor_byte_size / sizeof(ELEMENT_TYPE);                   \
-    } else {                                                                     \
-      element_count = initializer.DATA_SIZE();                                   \
-      tensor_byte_size = element_count * sizeof(ELEMENT_TYPE);                   \
-    }                                                                            \
-    /* C++20: use std::make_unique_for_overwrite<uint8_t[]>(tensor_byte_size); */\
-    unpacked_tensor = std::unique_ptr<uint8_t[]>(new uint8_t[tensor_byte_size]); \
-    return onnxruntime::utils::UnpackTensor(                                     \
-        initializer,                                                             \
-        initializer.has_raw_data() ? initializer.raw_data().data() : nullptr,    \
-        initializer.has_raw_data() ? initializer.raw_data().size() : 0,          \
-        reinterpret_cast<ELEMENT_TYPE*>(unpacked_tensor.get()), element_count);  \
-    break;                                                                       \
+#define CASE_UNPACK(TYPE, ELEMENT_TYPE, DATA_SIZE)                                               \
+  case ONNX_NAMESPACE::TensorProto_DataType::TensorProto_DataType_##TYPE: {                      \
+    SafeInt<size_t> tensor_byte_size;                                                            \
+    size_t element_count = 0;                                                                    \
+    if (initializer.has_raw_data()) {                                                            \
+      tensor_byte_size = initializer.raw_data().size();                                          \
+      element_count = tensor_byte_size / sizeof(ELEMENT_TYPE);                                   \
+    } else {                                                                                     \
+      element_count = initializer.DATA_SIZE();                                                   \
+      tensor_byte_size = element_count * sizeof(ELEMENT_TYPE);                                   \
+    }                                                                                            \
+    /* TODO: C++ 20 replace with std::make_unique_for_overwrite<uint8_t[]>(tensor_byte_size); */ \
+    unpacked_tensor = std::unique_ptr<uint8_t[]>(new uint8_t[tensor_byte_size]);                 \
+    return onnxruntime::utils::UnpackTensor(                                                     \
+        initializer,                                                                             \
+        initializer.has_raw_data() ? initializer.raw_data().data() : nullptr,                    \
+        initializer.has_raw_data() ? initializer.raw_data().size() : 0,                          \
+        reinterpret_cast<ELEMENT_TYPE*>(unpacked_tensor.get()), element_count);                  \
+    break;                                                                                       \
   }
 
 Status UnpackInitializerData(const onnx::TensorProto& initializer,
@@ -1548,7 +1550,8 @@ Status UnpackInitializerData(const onnx::TensorProto& initializer,
     ORT_RETURN_IF_ERROR(ReadExternalDataForTensor(
         initializer,
         (model_path.IsEmpty() || model_path.ParentPath().IsEmpty()) ? nullptr : model_path.ParentPath().ToPathString().c_str(),
-        unpacked_tensor, unpacked_tensor_bytesize));
+        unpacked_tensor,
+        unpacked_tensor_bytesize));
     return Status::OK();
   }
 
