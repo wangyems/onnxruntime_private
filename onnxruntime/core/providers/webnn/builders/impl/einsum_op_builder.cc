@@ -34,9 +34,8 @@ class EinsumOpBuilder : public BaseOpBuilder {
                          const WebnnDeviceType /* device_type */, const logging::Logger& logger) const override;
 };
 
-// Helper functions, thanks for DML OperatorHelper
-enum class RecognizedOperatorType
-{
+// Helper functions, thanks for DML EP's OperatorHelper.
+enum class RecognizedOperatorType {
     None,
     Identity,
     Multiply,
@@ -52,24 +51,20 @@ enum class RecognizedOperatorType
     Total,
 };
 
-struct RecognizedOperatorInfo
-{
+struct RecognizedOperatorInfo {
   RecognizedOperatorType recognized_operator_type;
   std::initializer_list<uint32_t> component_ranks;
   std::initializer_list<uint32_t> label_indices;
 };
 
-struct Component
-{
+struct Component {
   uint32_t label_idx_begin;
   uint32_t label_idx_end;
 
-  uint32_t GetDimensionCount() const noexcept
-  {
+  uint32_t GetDimensionCount() const noexcept {
     return label_idx_end - label_idx_begin;
   }
-  gsl::span<const uint32_t> GetLabels(gsl::span<const uint32_t> labels) const
-  {
+  gsl::span<const uint32_t> GetLabels(gsl::span<const uint32_t> labels) const {
     return labels.subspan(label_idx_begin, label_idx_end - label_idx_begin);
   };
 };
@@ -267,11 +262,8 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
 
   RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(m_label_indices, m_components, m_output_dimensions);
 
-  static_assert(RecognizedOperatorType::Total == static_cast<RecognizedOperatorType>(12), "Update this switch.");
-  switch(recognized_operator_type)
-  {
-  case RecognizedOperatorType::Multiply:
-    {
+  switch(recognized_operator_type) {
+    case RecognizedOperatorType::Multiply: {
       const size_t a_idx = 0, b_idx = 1;
       emscripten::val a = model_builder.GetOperand(node.InputDefs()[a_idx]->Name());
       emscripten::val b = model_builder.GetOperand(node.InputDefs()[b_idx]->Name());
@@ -279,8 +271,7 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
     }
     break;
 
-  case RecognizedOperatorType::OuterProduct:
-    {
+    case RecognizedOperatorType::OuterProduct: {
       const size_t a_idx = 0, b_idx = 1;
       emscripten::val a = model_builder.GetOperand(node.InputDefs()[a_idx]->Name());
       emscripten::val b = model_builder.GetOperand(node.InputDefs()[b_idx]->Name());
@@ -306,16 +297,14 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
     }
     break;
 
-  case RecognizedOperatorType::MatMulTransposeA:
-  case RecognizedOperatorType::MatMulTransposeB:
-  case RecognizedOperatorType::MatMul:
-    {
+    case RecognizedOperatorType::MatMulTransposeA:
+    case RecognizedOperatorType::MatMulTransposeB:
+    case RecognizedOperatorType::MatMul: {
       const size_t a_idx = 0, b_idx = 1;
       emscripten::val a = model_builder.GetOperand(node.InputDefs()[a_idx]->Name());
       emscripten::val b = model_builder.GetOperand(node.InputDefs()[b_idx]->Name());
 
-      if (recognized_operator_type == RecognizedOperatorType::MatMulTransposeA)
-      {
+      if (recognized_operator_type == RecognizedOperatorType::MatMulTransposeA) {
         std::vector<int64_t> input_shape;
         ORT_RETURN_IF_NOT(GetShape(*input_defs[0], input_shape, logger), "Cannot get shape");
         auto input_dims = static_cast<int64_t>(input_shape.size());
@@ -332,8 +321,7 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
         options.set("permutation", emscripten::val::array(permutation));
         a = model_builder.GetBuilder().call<emscripten::val>("transpose", a, options);
       }
-      else if (recognized_operator_type == RecognizedOperatorType::MatMulTransposeB)
-      {
+      else if (recognized_operator_type == RecognizedOperatorType::MatMulTransposeB) {
         std::vector<int64_t> input_shape;
         ORT_RETURN_IF_NOT(GetShape(*input_defs[1], input_shape, logger), "Cannot get shape");
         auto input_dims = input_shape.size();
@@ -355,10 +343,9 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
     }
     break;
 
-  case RecognizedOperatorType::MatMulNhcw:
-  case RecognizedOperatorType::MatMulNhcwTransposeA:
-  case RecognizedOperatorType::MatMulNhcwTransposeB:
-    {
+    case RecognizedOperatorType::MatMulNhcw:
+    case RecognizedOperatorType::MatMulNhcwTransposeA:
+    case RecognizedOperatorType::MatMulNhcwTransposeB: {
       const size_t a_idx = 0, b_idx = 1;
       emscripten::val a = model_builder.GetOperand(node.InputDefs()[a_idx]->Name());
       emscripten::val b = model_builder.GetOperand(node.InputDefs()[b_idx]->Name());
@@ -367,12 +354,10 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
       std::vector<int64_t> permutation = {0,2,1,3};
       std::vector<int64_t> permutation_a = {0,2,1,3};
       std::vector<int64_t> permutation_b = {0,2,1,3};
-      if (recognized_operator_type == RecognizedOperatorType::MatMulNhcwTransposeA)
-      {
+      if (recognized_operator_type == RecognizedOperatorType::MatMulNhcwTransposeA) {
         permutation_a = {0,2,3,1};
       }
-      else if (recognized_operator_type == RecognizedOperatorType::MatMulNhcwTransposeB)
-      {
+      else if (recognized_operator_type == RecognizedOperatorType::MatMulNhcwTransposeB) {
         permutation_b = {0,2,3,1};
       }
 
@@ -387,24 +372,18 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
     }
     break;
 
-  case RecognizedOperatorType::ReduceSum:
-    {
+    case RecognizedOperatorType::ReduceSum: {
       auto kept_axes = m_components.back().GetLabels(m_label_indices);
       assert(kept_axes.size() <= 1);
       std::vector<uint32_t> reduced_axes;
-      // uint32_t kept_axes_mask = (kept_axes.size() << 0) - 1;
       uint32_t kept_axes_mask = 0;
-      for (auto axis : kept_axes)
-      {
+      for (auto axis : kept_axes) {
           kept_axes_mask |= (1 << axis);
       }
-      std::vector<int64_t> output_shape;
-      const auto& output_defs = node.OutputDefs();
-      ORT_RETURN_IF_NOT(GetShape(*output_defs[0], output_shape, logger), "Cannot get shape");
-      for (uint32_t axis = 0, axis_count = static_cast<uint32_t>(output_shape.size()); axis < axis_count; ++axis)
-      {
-          if (~kept_axes_mask & (1<<axis))
-          {
+      std::vector<int64_t> input_shape;
+      ORT_RETURN_IF_NOT(GetShape(*input_defs[0], input_shape, logger), "Cannot get shape");
+      for (uint32_t axis = 0, axis_count = static_cast<uint32_t>(input_shape.size()); axis < axis_count; ++axis) {
+          if (~kept_axes_mask & (1<<axis)) {
               reduced_axes.push_back(axis);
           }
       }
@@ -413,10 +392,7 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
       emscripten::val options = emscripten::val::object();
       options.set("keepDimensions", false);
 
-      std::vector<int64_t> input_shape;
-      ORT_RETURN_IF_NOT(GetShape(*input_defs[0], input_shape, logger), "Cannot get shape");
       const auto input_rank = input_shape.size();
-
       std::vector<int32_t> axes_data;
       std::transform(
           reduced_axes.begin(), reduced_axes.end(), std::back_inserter(axes_data),
@@ -427,8 +403,7 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
     }
     break;
 
-  case RecognizedOperatorType::Transpose:
-    {
+    case RecognizedOperatorType::Transpose: {
       emscripten::val input = model_builder.GetOperand(node.InputDefs()[0]->Name());
       // Transpose via input strides. The output tensor is not strided.
       assert(m_components.front().GetDimensionCount() == m_components.back().GetDimensionCount());
@@ -441,13 +416,12 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
       output = model_builder.GetBuilder().call<emscripten::val>("transpose", input, options);
     }
     break;
-  case RecognizedOperatorType::Identity:
-    {
+    case RecognizedOperatorType::Identity: {
       emscripten::val input = model_builder.GetOperand(node.InputDefs()[0]->Name());
       output = model_builder.GetBuilder().call<emscripten::val>("identity", input);
     }
     break;
-  default:
+    default:
     break;
   }
 
@@ -461,11 +435,6 @@ bool EinsumOpBuilder::IsOpSupportedImpl(const InitializedTensorSet& initializers
                                         const Node& node,
                                         const WebnnDeviceType device_type,
                                         const logging::Logger& logger) const {
-
-  if (device_type == WebnnDeviceType::CPU) {
-    LOGS(logger, VERBOSE) << "Einsum is not supported for cpu in WebNN EP. Matmul and ReduceSum are not supported in XNNPACK.";
-    return false;
-  }
 
   const auto& input_defs = node.InputDefs();
 
@@ -484,15 +453,14 @@ bool EinsumOpBuilder::IsOpSupportedImpl(const InitializedTensorSet& initializers
     return false;
   }
 
-  /* // dml's condition, im not sure if it is necessary
-  if (static_cast<uint32_t>(node.OutputDefs()) != 1) {
-    LOGS(logger, VERBOSE) << "EinSum expects one output tensor.";
-    return false;
-  }
-  */
   RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(m_label_indices, m_components, m_output_dimensions);
   if (recognized_operator_type == RecognizedOperatorType::None) {
     LOGS(logger, VERBOSE) << "The equation is not supported in Einsum.";
+    return false;
+  }
+
+  if (recognized_operator_type == RecognizedOperatorType::ReduceSum && device_type == WebnnDeviceType::CPU) {
+    LOGS(logger, VERBOSE) << "Einsum is not supported for cpu in WebNN EP. ReduceSum is not supported in XNNPACK.";
     return false;
   }
 
