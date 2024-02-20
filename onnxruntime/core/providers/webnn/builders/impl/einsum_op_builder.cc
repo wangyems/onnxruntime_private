@@ -436,6 +436,9 @@ bool EinsumOpBuilder::IsOpSupportedImpl(const InitializedTensorSet& initializers
                                         const WebnnDeviceType device_type,
                                         const logging::Logger& logger) const {
 
+
+  emscripten::val console = emscripten::val::global("console");
+  console.call<void>("log", emscripten::val("log from Einsum..."));
   const auto& input_defs = node.InputDefs();
 
   NodeAttrHelper helper(node);
@@ -445,8 +448,11 @@ bool EinsumOpBuilder::IsOpSupportedImpl(const InitializedTensorSet& initializers
   std::vector<uint32_t> m_output_dimensions;
 
   if (!ParseEquationComponents(initializers, node, equation, m_label_indices,
-      m_components, m_output_dimensions, logger))
+      m_components, m_output_dimensions, logger)) {
+
+    LOGS(logger, VERBOSE) << "EinSum input equation is illegal.";
     return false;
+  }
 
   if (static_cast<uint32_t>(input_defs.size()) + 1 != m_components.size()) {
     LOGS(logger, VERBOSE) << "EinSum input tensor count is inconsistent with the equation component count.";
