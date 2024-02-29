@@ -19,15 +19,12 @@ namespace webnn {
 
 class EinsumOpBuilder : public BaseOpBuilder {
   // Add operator related.
- public:
-  void AddInitializersToSkip(ModelBuilder& model_builder, const Node& node) const override;
 
  private:
   Status AddToModelBuilderImpl(ModelBuilder& model_builder, const Node& node,
                                const logging::Logger& logger) const override ORT_MUST_USE_RESULT;
 
   // Operator support related.
- private:
   bool IsOpSupportedImpl(const InitializedTensorSet& initializers, const Node& node,
                          const WebnnDeviceType /* device_type */, const logging::Logger& logger) const override;
 };
@@ -58,7 +55,7 @@ struct Component {
   }
   gsl::span<const uint32_t> GetLabels(gsl::span<const uint32_t> labels) const {
     return labels.subspan(label_idx_begin, label_idx_end - label_idx_begin);
-  };
+  }
 };
 
 bool ParseEquationComponents(const InitializedTensorSet& initializers,
@@ -78,7 +75,8 @@ bool ParseEquationComponents(const InitializedTensorSet& initializers,
   bool end_flag = false;
 
   // Parsing inputs and output
-  for (const char* it = equation.data(); !end_flag; ++it) {  // std::string.data() promises the end of the string is '\0'
+  for (const char* it = equation.data(); !end_flag; ++it) {
+    // std::string.data() promises the end of the string is '\0'
     char ch = *it;
 
     if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z')) {
@@ -177,7 +175,7 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
 
   Attention:
     # of (1,1,0) maybe > 1, flatten / reshape a_3 and b_2
-    # of (1,1,0) maybe = 0, add one addtional dim for a_3 and b_2
+    # of (1,1,0) maybe = 0, add one additional dim for a_3 and b_2
   */
 
   // The index in input/output of the dim index
@@ -269,7 +267,6 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
   b_0.insert(b_0.end(), b_3.begin(), b_3.end());
 
   std::vector<uint32_t> permutation_a, permutation_b;
-
   for (uint32_t i = 0; i < a_0.size(); ++i) {
     permutation_a.push_back(static_cast<uint32_t>(input_a_axes_map[a_0[i]]));
     permutation_b.push_back(static_cast<uint32_t>(input_b_axes_map[b_0[i]]));
@@ -351,8 +348,10 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
       new_new_b_shape.push_back(new_b_shape[idx]);
     }
 
-    input_a = model_builder.GetBuilder().call<emscripten::val>("reshape", input_a, emscripten::val::array(new_new_a_shape));
-    input_b = model_builder.GetBuilder().call<emscripten::val>("reshape", input_b, emscripten::val::array(new_b_shape));
+    input_a = model_builder.GetBuilder().call<emscripten::val>("reshape", input_a,
+                                                               emscripten::val::array(new_new_a_shape));
+    input_b = model_builder.GetBuilder().call<emscripten::val>("reshape", input_b,
+                                                               emscripten::val::array(new_b_shape));
   }
 
   // Step 2. Matmul
@@ -463,10 +462,6 @@ RecognizedOperatorType DetermineRecognizedOperatorType(const std::vector<uint32_
 
 // Add operator related.
 
-void EinsumOpBuilder::AddInitializersToSkip(ModelBuilder& model_builder, const Node& node) const {
-  model_builder.AddInitializerToSkip(node.InputDefs()[1]->Name());
-}
-
 Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
                                               const Node& node,
                                               const logging::Logger& logger) const {
@@ -485,7 +480,8 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
                                             m_components, m_output_dimensions, num_labels, logger),
                     "Error parsing equation components.");
 
-  RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(m_label_indices, m_components, m_output_dimensions);
+  RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(m_label_indices, m_components,
+                                                                                    m_output_dimensions);
 
   switch (recognized_operator_type) {
     case RecognizedOperatorType::Multiply: {
@@ -536,11 +532,13 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
       output = model_builder.GetBuilder().call<emscripten::val>("transpose", input, options);
     } break;
     case RecognizedOperatorType::Identity: {
+      // identity has not been supported by XNNPack backend, but it will be coming soon.
       emscripten::val input = model_builder.GetOperand(node.InputDefs()[0]->Name());
       output = model_builder.GetBuilder().call<emscripten::val>("identity", input);
     } break;
     case RecognizedOperatorType::Others: {
-      ORT_RETURN_IF_ERROR(PairwiseOperandProcess(model_builder, node, m_label_indices, m_components, m_output_dimensions, num_labels, output, logger));
+      ORT_RETURN_IF_ERROR(PairwiseOperandProcess(model_builder, node, m_label_indices, m_components,
+                                                 m_output_dimensions, num_labels, output, logger));
     } break;
     default:
       break;
@@ -556,8 +554,6 @@ bool EinsumOpBuilder::IsOpSupportedImpl(const InitializedTensorSet& initializers
                                         const Node& node,
                                         const WebnnDeviceType device_type,
                                         const logging::Logger& logger) const {
-  emscripten::val console = emscripten::val::global("console");
-  console.call<void>("log", emscripten::val("log from Einsum..."));
   const auto& input_defs = node.InputDefs();
 
   NodeAttrHelper helper(node);
@@ -578,7 +574,8 @@ bool EinsumOpBuilder::IsOpSupportedImpl(const InitializedTensorSet& initializers
     return false;
   }
 
-  RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(m_label_indices, m_components, m_output_dimensions);
+  RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(m_label_indices, m_components,
+                                                                                    m_output_dimensions);
   if (recognized_operator_type == RecognizedOperatorType::None) {
     LOGS(logger, VERBOSE) << "The equation is not supported in Einsum.";
     return false;
