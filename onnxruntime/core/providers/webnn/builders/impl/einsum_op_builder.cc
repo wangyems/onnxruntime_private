@@ -540,9 +540,9 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
       emscripten::val input = model_builder.GetOperand(node.InputDefs()[0]->Name());
       assert(components.front().GetDimensionCount() == components.back().GetDimensionCount());
       // Remap transposed strides using the component labels from input to output.
-      auto label_indices = components.back().GetLabels(label_indices);
+      auto output_labels = components.back().GetLabels(label_indices);
 
-      std::vector<uint32_t> permutation{label_indices.begin(), label_indices.end()};
+      std::vector<uint32_t> permutation{output_labels.begin(), output_labels.end()};
       emscripten::val options = emscripten::val::object();
       options.set("permutation", emscripten::val::array(permutation));
       output = model_builder.GetBuilder().call<emscripten::val>("transpose", input, options);
