@@ -96,7 +96,7 @@ bool ParseEquationComponents(const InitializedTensorSet& initializers,
     } else if (ch == ' ') {
       continue;
     } else {
-      current_component.label_index_end = static_cast<uint32_t>(m_label_indices.size());
+      current_component.label_index_end = static_cast<uint32_t>(label_indices.size());
       components.push_back(current_component);
       current_component.label_index_begin = current_component.label_index_end;
 
@@ -143,7 +143,7 @@ bool ParseEquationComponents(const InitializedTensorSet& initializers,
       }
     }
 
-    current_component.label_index_end = static_cast<uint32_t>(m_label_indices.size());
+    current_component.label_index_end = static_cast<uint32_t>(label_indices.size());
     components.push_back(current_component);
   }
   return true;
@@ -158,9 +158,9 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
                               uint32_t num_labels,
                               emscripten::val& output,
                               const logging::Logger& logger) {
-  auto input_a_labels = components[0].GetLabels(m_label_indices);
-  auto input_b_labels = components[1].GetLabels(m_label_indices);
-  auto output_labels = components[2].GetLabels(m_label_indices);
+  auto input_a_labels = components[0].GetLabels(label_indices);
+  auto input_b_labels = components[1].GetLabels(label_indices);
+  auto output_labels = components[2].GetLabels(label_indices);
 
   /*
   Step 1. Transpose and Reshape
@@ -438,19 +438,19 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
 RecognizedOperatorType DetermineRecognizedOperatorType(const std::vector<uint32_t>& label_indices,
                                                        const std::vector<Component>& components,
                                                        const std::vector<uint32_t>& output_dimensions) {
-  if (m_components.empty()) return RecognizedOperatorType::None;
+  if (components.empty()) return RecognizedOperatorType::None;
 
   auto equals = [](gsl::span<const uint32_t> a, gsl::span<const uint32_t> b) {
     return std::equal(a.begin(), a.end(), b.begin(), b.end());
   };
 
   std::array<uint32_t, 3> component_ranks;
-  if (m_components.size() > component_ranks.size()) {
+  if (components.size() > component_ranks.size()) {
     // So far, not support for more than two inputs and one output.
     return RecognizedOperatorType::None;
-  } else if (m_components.size() == 2) {  // one input
-    auto input_labels = components[0].GetLabels(m_label_indices);
-    auto output_labels = components[1].GetLabels(m_label_indices);
+  } else if (components.size() == 2) {  // one input
+    auto input_labels = components[0].GetLabels(label_indices);
+    auto output_labels = components[1].GetLabels(label_indices);
     if (input_labels.size() == output_labels.size()) {
       if (equals(input_labels, output_labels)) {  // identity
         return RecognizedOperatorType::Identity;
@@ -461,10 +461,10 @@ RecognizedOperatorType DetermineRecognizedOperatorType(const std::vector<uint32_
       return RecognizedOperatorType::ReduceSum;
     }
 
-  } else if (m_components.size() == 3) {  // two inputs
-    auto input_A_labels = components[0].GetLabels(m_label_indices);
-    auto input_B_labels = components[1].GetLabels(m_label_indices);
-    auto output_labels = components[2].GetLabels(m_label_indices);
+  } else if (components.size() == 3) {  // two inputs
+    auto input_A_labels = components[0].GetLabels(label_indices);
+    auto input_B_labels = components[1].GetLabels(label_indices);
+    auto output_labels = components[2].GetLabels(label_indices);
     if (equals(input_A_labels, output_labels) && equals(input_B_labels, output_labels)) {  // element-wise product
       return RecognizedOperatorType::Multiply;
     }
@@ -493,7 +493,7 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
                                             components, output_dimensions, num_labels, logger),
                     "Error parsing equation components.");
 
-  RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(m_label_indices, components,
+  RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(label_indices, components,
                                                                                     output_dimensions);
 
   switch (recognized_operator_type) {
@@ -506,7 +506,7 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
     break;
 
     case RecognizedOperatorType::ReduceSum: {
-      auto kept_axes = components.back().GetLabels(m_label_indices);
+      auto kept_axes = components.back().GetLabels(label_indices);
       assert(kept_axes.size() <= 1);
       std::vector<uint32_t> reduced_axes;
       uint32_t kept_axes_mask = 0;
@@ -538,9 +538,9 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
 
     case RecognizedOperatorType::Transpose: {
       emscripten::val input = model_builder.GetOperand(node.InputDefs()[0]->Name());
-      assert(m_components.front().GetDimensionCount() == components.back().GetDimensionCount());
+      assert(components.front().GetDimensionCount() == components.back().GetDimensionCount());
       // Remap transposed strides using the component labels from input to output.
-      auto label_indices = components.back().GetLabels(m_label_indices);
+      auto label_indices = components.back().GetLabels(label_indices);
 
       std::vector<uint32_t> permutation{label_indices.begin(), label_indices.end()};
       emscripten::val options = emscripten::val::object();
@@ -596,7 +596,7 @@ bool EinsumOpBuilder::IsOpSupportedImpl(const InitializedTensorSet& initializers
     return false;
   }
 
-  RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(m_label_indices, components,
+  RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(label_indices, components,
                                                                                     output_dimensions);
   if (recognized_operator_type == RecognizedOperatorType::None) {
     LOGS(logger, VERBOSE) << "The equation is not supported in Einsum.";
