@@ -36,7 +36,7 @@ enum class RecognizedOperatorType {
   ReduceSum,
   Transpose,
   Multiply,
-  Others,
+  PairWise,
   Total,
 };
 
@@ -47,25 +47,28 @@ struct RecognizedOperatorInfo {
 };
 
 struct Component {
-  uint32_t label_idx_begin;
-  uint32_t label_idx_end;
+  uint32_t label_index_begin;
+  uint32_t label_index_end;
 
   uint32_t GetDimensionCount() const noexcept {
-    return label_idx_end - label_idx_begin;
+    return label_index_end - label_index_begin;
   }
   gsl::span<const uint32_t> GetLabels(gsl::span<const uint32_t> labels) const {
-    return labels.subspan(label_idx_begin, label_idx_end - label_idx_begin);
+    return labels.subspan(label_index_begin, label_index_end - label_index_begin);
   }
 };
 
 bool ParseEquationComponents(const InitializedTensorSet& initializers,
-                             const Node& node, const std::string& equation,
-                             std::vector<uint32_t>& m_label_indices,
-                             std::vector<Component>& m_components,
-                             std::vector<uint32_t>& m_output_dimensions,
+                             const Node& node,
+                             const std::string& equation,
+                             std::vector<uint32_t>& label_indices,
+                             std::vector<Component>& components,
+                             std::vector<uint32_t>& output_dimensions,
                              uint32_t& num_labels,
                              const logging::Logger& logger) {
-  // Parse the equation and mapping each axis into numeric indices
+  // Parse an equation like 'ij,jk->ik' into components {ij, jk, ik} mapping letters to
+  // numeric indices {(0,1}, {1,2}, {0,2}}. The last component is the output.
+  // Read first to last character in equation, looking for letters, commas, and one arrow.
   std::map<char, uint32_t> label_maps;
   std::set<char> repeated_labels;
 
@@ -74,7 +77,6 @@ bool ParseEquationComponents(const InitializedTensorSet& initializers,
   bool at_output = false;
   bool end_flag = false;
 
-  // Parsing inputs and output
   for (const char* it = equation.data(); !end_flag; ++it) {
     // std::string.data() promises the end of the string is '\0'
     char ch = *it;
@@ -90,13 +92,13 @@ bool ParseEquationComponents(const InitializedTensorSet& initializers,
       } else if (!at_output) {
         repeated_labels.insert(ch);
       }
-      m_label_indices.push_back(i->second);
+      label_indices.push_back(i->second);
     } else if (ch == ' ') {
       continue;
     } else {
-      current_component.label_idx_end = static_cast<uint32_t>(m_label_indices.size());
-      m_components.push_back(current_component);
-      current_component.label_idx_begin = current_component.label_idx_end;
+      current_component.label_index_end = static_cast<uint32_t>(m_label_indices.size());
+      components.push_back(current_component);
+      current_component.label_index_begin = current_component.label_index_end;
 
       switch (ch) {
         case ',':
@@ -131,16 +133,18 @@ bool ParseEquationComponents(const InitializedTensorSet& initializers,
     }
   }
 
-  // No explicit output was given
+  // If no explicit output was given, generate an implicit output by ordering all the
+  // labels in alphabetic order (by ASCII value consistent with numpy, so Z < a).
+  // Exclude any labels that occurred more than once, as these cancel out.
   if (!at_output) {
     for (auto i : label_maps) {
       if (repeated_labels.count(i.first) == 0) {
-        m_label_indices.push_back(i.second);
+        label_indices.push_back(i.second);
       }
     }
 
-    current_component.label_idx_end = static_cast<uint32_t>(m_label_indices.size());
-    m_components.push_back(current_component);
+    current_component.label_index_end = static_cast<uint32_t>(m_label_indices.size());
+    components.push_back(current_component);
   }
   return true;
 }
@@ -148,15 +152,15 @@ bool ParseEquationComponents(const InitializedTensorSet& initializers,
 // For two inputs A,B and one output C
 Status PairwiseOperandProcess(ModelBuilder& model_builder,
                               const Node& node,
-                              const std::vector<uint32_t>& m_label_indices,
-                              const std::vector<Component>& m_components,
-                              const std::vector<uint32_t>& m_output_dimensions,
-                              const uint32_t& num_labels,
+                              const std::vector<uint32_t>& label_indices,
+                              const std::vector<Component>& components,
+                              const std::vector<uint32_t>& output_dimensions,
+                              uint32_t num_labels,
                               emscripten::val& output,
                               const logging::Logger& logger) {
-  auto input_a_labels = m_components[0].GetLabels(m_label_indices);
-  auto input_b_labels = m_components[1].GetLabels(m_label_indices);
-  auto output_labels = m_components[2].GetLabels(m_label_indices);
+  auto input_a_labels = components[0].GetLabels(m_label_indices);
+  auto input_b_labels = components[1].GetLabels(m_label_indices);
+  auto output_labels = components[2].GetLabels(m_label_indices);
 
   /*
   Step 1. Transpose and Reshape
@@ -242,17 +246,26 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
     }
   }
 
+  // Matrix multiplication can be formatted in (...,i,j) * (...,j,k) ==> (...,i,k)
+  // Even inner and outter product can be reformatted as this.
+  // Inner product (1,i) * (i,1) ==> (1,1)
+  // Outter product (i,1) * (1,j) ==> (i,j)
+  // i.e., in our expression, (a_2,a_3) * (b_2,b_3) ==> (a_2,b_3)
+
   if (!a_flag) {
+    // Lack of a_2 element, add a new a_2, whose dim value = 1
     a_2.push_back(num_labels + 1);
     input_a_axes_map[num_labels + 1] = a_idx++;
   }
   if (!b_flag) {
+    // Lack of b_3 element, add a new b_3, whose dim value = 1
     b_3.push_back(num_labels + 2);
     input_b_axes_map[num_labels + 2] = b_idx++;
     b_idx++;
   }
 
   if (a_3.empty()) {
+    // Lack of a_3 and b_2 elements, add a new a_3 for A and a new b_2 for B, whose dim value = 1
     a_3.push_back(num_labels);
     b_2.push_back(num_labels);
     input_a_axes_map[num_labels] = a_idx;
@@ -281,7 +294,7 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
     ORT_RETURN_IF_NOT(GetShape(*input_defs[0], input_a_shape, logger), "Cannot get shape");
     std::transform(input_a_shape.begin(), input_a_shape.end(), std::back_inserter(new_a_shape),
                    [](int64_t i) { return static_cast<uint32_t>(i); });
-    for (uint32_t index = 0; index < a_0.size() - input_a_labels.size(); ++index) {
+    for (uint32_t i = 0; i < a_0.size() - input_a_labels.size(); ++i) {
       new_a_shape.push_back(SafeInt<int32_t>(1));
     }
     input_a = model_builder.GetBuilder().call<emscripten::val>("reshape", input_a, emscripten::val::array(new_a_shape));
@@ -291,7 +304,7 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
     ORT_RETURN_IF_NOT(GetShape(*input_defs[1], input_b_shape, logger), "Cannot get shape");
     std::transform(input_b_shape.begin(), input_b_shape.end(), std::back_inserter(new_b_shape),
                    [](int64_t i) { return static_cast<uint32_t>(i); });
-    for (uint32_t index = 0; index < b_0.size() - input_b_labels.size(); ++index) {
+    for (uint32_t i = 0; i < b_0.size() - input_b_labels.size(); ++i) {
       new_b_shape.push_back(SafeInt<int32_t>(1));
     }
     input_b = model_builder.GetBuilder().call<emscripten::val>("reshape", input_b, emscripten::val::array(new_b_shape));
@@ -422,9 +435,9 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
   return Status::OK();
 }
 
-RecognizedOperatorType DetermineRecognizedOperatorType(const std::vector<uint32_t>& m_label_indices,
-                                                       const std::vector<Component>& m_components,
-                                                       const std::vector<uint32_t>& m_output_dimensions) {
+RecognizedOperatorType DetermineRecognizedOperatorType(const std::vector<uint32_t>& label_indices,
+                                                       const std::vector<Component>& components,
+                                                       const std::vector<uint32_t>& output_dimensions) {
   if (m_components.empty()) return RecognizedOperatorType::None;
 
   auto equals = [](gsl::span<const uint32_t> a, gsl::span<const uint32_t> b) {
@@ -436,8 +449,8 @@ RecognizedOperatorType DetermineRecognizedOperatorType(const std::vector<uint32_
     // So far, not support for more than two inputs and one output.
     return RecognizedOperatorType::None;
   } else if (m_components.size() == 2) {  // one input
-    auto input_labels = m_components[0].GetLabels(m_label_indices);
-    auto output_labels = m_components[1].GetLabels(m_label_indices);
+    auto input_labels = components[0].GetLabels(m_label_indices);
+    auto output_labels = components[1].GetLabels(m_label_indices);
     if (input_labels.size() == output_labels.size()) {
       if (equals(input_labels, output_labels)) {  // identity
         return RecognizedOperatorType::Identity;
@@ -449,15 +462,15 @@ RecognizedOperatorType DetermineRecognizedOperatorType(const std::vector<uint32_
     }
 
   } else if (m_components.size() == 3) {  // two inputs
-    auto input_A_labels = m_components[0].GetLabels(m_label_indices);
-    auto input_B_labels = m_components[1].GetLabels(m_label_indices);
-    auto output_labels = m_components[2].GetLabels(m_label_indices);
+    auto input_A_labels = components[0].GetLabels(m_label_indices);
+    auto input_B_labels = components[1].GetLabels(m_label_indices);
+    auto output_labels = components[2].GetLabels(m_label_indices);
     if (equals(input_A_labels, output_labels) && equals(input_B_labels, output_labels)) {  // element-wise product
       return RecognizedOperatorType::Multiply;
     }
   }
 
-  return RecognizedOperatorType::Others;
+  return RecognizedOperatorType::PairWise;
 }
 
 // Add operator related.
@@ -472,16 +485,16 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
   NodeAttrHelper helper(node);
   const auto equation = helper.Get("equation", std::string(" "));
 
-  std::vector<uint32_t> m_label_indices;
-  std::vector<Component> m_components;
-  std::vector<uint32_t> m_output_dimensions;
+  std::vector<uint32_t> label_indices;
+  std::vector<Component> components;
+  std::vector<uint32_t> output_dimensions;
   uint32_t num_labels;
-  ORT_RETURN_IF_NOT(ParseEquationComponents(initializers, node, equation, m_label_indices,
-                                            m_components, m_output_dimensions, num_labels, logger),
+  ORT_RETURN_IF_NOT(ParseEquationComponents(initializers, node, equation, label_indices,
+                                            components, output_dimensions, num_labels, logger),
                     "Error parsing equation components.");
 
-  RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(m_label_indices, m_components,
-                                                                                    m_output_dimensions);
+  RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(m_label_indices, components,
+                                                                                    output_dimensions);
 
   switch (recognized_operator_type) {
     case RecognizedOperatorType::Multiply: {
@@ -489,9 +502,11 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
       emscripten::val a = model_builder.GetOperand(node.InputDefs()[a_idx]->Name());
       emscripten::val b = model_builder.GetOperand(node.InputDefs()[b_idx]->Name());
       output = model_builder.GetBuilder().call<emscripten::val>("mul", a, b);
-    } break;
+    }
+    break;
+
     case RecognizedOperatorType::ReduceSum: {
-      auto kept_axes = m_components.back().GetLabels(m_label_indices);
+      auto kept_axes = components.back().GetLabels(m_label_indices);
       assert(kept_axes.size() <= 1);
       std::vector<uint32_t> reduced_axes;
       uint32_t kept_axes_mask = 0;
@@ -518,30 +533,37 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
       options.set("axes", emscripten::val::array(axes_data));
 
       output = model_builder.GetBuilder().call<emscripten::val>("reduceSum", input, options);
-    } break;
+    }
+    break;
+
     case RecognizedOperatorType::Transpose: {
       emscripten::val input = model_builder.GetOperand(node.InputDefs()[0]->Name());
-      // Transpose via input strides. The output tensor is not strided.
-      assert(m_components.front().GetDimensionCount() == m_components.back().GetDimensionCount());
+      assert(m_components.front().GetDimensionCount() == components.back().GetDimensionCount());
       // Remap transposed strides using the component labels from input to output.
-      auto label_indices = m_components.back().GetLabels(m_label_indices);
+      auto label_indices = components.back().GetLabels(m_label_indices);
 
       std::vector<uint32_t> permutation{label_indices.begin(), label_indices.end()};
       emscripten::val options = emscripten::val::object();
       options.set("permutation", emscripten::val::array(permutation));
       output = model_builder.GetBuilder().call<emscripten::val>("transpose", input, options);
-    } break;
+    }
+    break;
+
     case RecognizedOperatorType::Identity: {
       // identity has not been supported by XNNPack backend, but it will be coming soon.
       emscripten::val input = model_builder.GetOperand(node.InputDefs()[0]->Name());
       output = model_builder.GetBuilder().call<emscripten::val>("identity", input);
-    } break;
-    case RecognizedOperatorType::Others: {
-      ORT_RETURN_IF_ERROR(PairwiseOperandProcess(model_builder, node, m_label_indices, m_components,
-                                                 m_output_dimensions, num_labels, output, logger));
-    } break;
+    }
+    break;
+
+    case RecognizedOperatorType::PairWise: {
+      ORT_RETURN_IF_ERROR(PairwiseOperandProcess(model_builder, node, label_indices, components,
+                                                 output_dimensions, num_labels, output, logger));
+    }
+    break;
+
     default:
-      break;
+    break;
   }
 
   model_builder.AddOperand(node.OutputDefs()[0]->Name(), std::move(output));
@@ -558,24 +580,24 @@ bool EinsumOpBuilder::IsOpSupportedImpl(const InitializedTensorSet& initializers
 
   NodeAttrHelper helper(node);
   const auto equation = helper.Get("equation", std::string(" "));
-  std::vector<uint32_t> m_label_indices;
-  std::vector<Component> m_components;
-  std::vector<uint32_t> m_output_dimensions;
+  std::vector<uint32_t> label_indices;
+  std::vector<Component> components;
+  std::vector<uint32_t> output_dimensions;
   uint32_t num_labels;
 
-  if (!ParseEquationComponents(initializers, node, equation, m_label_indices,
-                               m_components, m_output_dimensions, num_labels, logger)) {
+  if (!ParseEquationComponents(initializers, node, equation, label_indices,
+                               components, output_dimensions, num_labels, logger)) {
     LOGS(logger, VERBOSE) << "EinSum input equation is illegal.";
     return false;
   }
 
-  if (static_cast<uint32_t>(input_defs.size()) + 1 != m_components.size()) {
+  if (static_cast<uint32_t>(input_defs.size()) + 1 != components.size()) {
     LOGS(logger, VERBOSE) << "EinSum input tensor count is inconsistent with the equation component count.";
     return false;
   }
 
-  RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(m_label_indices, m_components,
-                                                                                    m_output_dimensions);
+  RecognizedOperatorType recognized_operator_type = DetermineRecognizedOperatorType(m_label_indices, components,
+                                                                                    output_dimensions);
   if (recognized_operator_type == RecognizedOperatorType::None) {
     LOGS(logger, VERBOSE) << "The equation is not supported in Einsum.";
     return false;
