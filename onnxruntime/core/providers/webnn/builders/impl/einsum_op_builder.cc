@@ -202,11 +202,12 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
   }
 
   // Inputs Reshape
+  // a_0 = [a_1,a_2,a_3], b_0 = [b_1,b_2,b_3]
   std::vector<uint32_t> a_0, a_1, a_2, a_3, b_0, b_1, b_2, b_3;
   uint32_t a_idx = input_a_labels.size();
   uint32_t b_idx = input_b_labels.size();
-  bool a_flag = false;
-  bool b_flag = false;
+  bool a_flag = false; // whether a_2 has element
+  bool b_flag = false; // whether b_3 has element
 
   for (uint32_t i = 0; i < num_labels; ++i) {
     if (input_a_axes_map[i] != -1) {
@@ -460,6 +461,7 @@ RecognizedOperatorType DetermineRecognizedOperatorType(const std::vector<uint32_
     } else if (output_labels.empty()) {  // scalar output, reduce
       return RecognizedOperatorType::ReduceSum;
     }
+    return RecognizedOperatorType::None;
 
   } else if (components.size() == 3) {  // two inputs
     auto input_A_labels = components[0].GetLabels(label_indices);
