@@ -206,8 +206,8 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
   std::vector<uint32_t> a_0, a_1, a_2, a_3, b_0, b_1, b_2, b_3;
   uint32_t a_idx = input_a_labels.size();
   uint32_t b_idx = input_b_labels.size();
-  bool a_flag = false; // whether a_2 has element
-  bool b_flag = false; // whether b_3 has element
+  bool a_flag = false;  // whether a_2 has element
+  bool b_flag = false;  // whether b_3 has element
 
   for (uint32_t i = 0; i < num_labels; ++i) {
     if (input_a_axes_map[i] != -1) {
@@ -504,8 +504,7 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
       emscripten::val a = model_builder.GetOperand(node.InputDefs()[a_idx]->Name());
       emscripten::val b = model_builder.GetOperand(node.InputDefs()[b_idx]->Name());
       output = model_builder.GetBuilder().call<emscripten::val>("mul", a, b);
-    }
-    break;
+    } break;
 
     case RecognizedOperatorType::ReduceSum: {
       auto kept_axes = components.back().GetLabels(label_indices);
@@ -535,8 +534,7 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
       options.set("axes", emscripten::val::array(axes_data));
 
       output = model_builder.GetBuilder().call<emscripten::val>("reduceSum", input, options);
-    }
-    break;
+    } break;
 
     case RecognizedOperatorType::Transpose: {
       emscripten::val input = model_builder.GetOperand(node.InputDefs()[0]->Name());
@@ -548,24 +546,21 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
       emscripten::val options = emscripten::val::object();
       options.set("permutation", emscripten::val::array(permutation));
       output = model_builder.GetBuilder().call<emscripten::val>("transpose", input, options);
-    }
-    break;
+    } break;
 
     case RecognizedOperatorType::Identity: {
       // identity has not been supported by XNNPack backend, but it will be coming soon.
       emscripten::val input = model_builder.GetOperand(node.InputDefs()[0]->Name());
       output = model_builder.GetBuilder().call<emscripten::val>("identity", input);
-    }
-    break;
+    } break;
 
     case RecognizedOperatorType::PairWise: {
       ORT_RETURN_IF_ERROR(PairwiseOperandProcess(model_builder, node, label_indices, components,
                                                  output_dimensions, num_labels, output, logger));
-    }
-    break;
+    } break;
 
     default:
-    break;
+      break;
   }
 
   model_builder.AddOperand(node.OutputDefs()[0]->Name(), std::move(output));
