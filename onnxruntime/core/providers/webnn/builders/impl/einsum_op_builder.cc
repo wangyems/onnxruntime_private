@@ -36,7 +36,7 @@ enum class RecognizedOperatorType {
   ReduceSum,
   Transpose,
   Multiply,
-  PairWise,
+  Pairwise,
   Total,
 };
 
@@ -472,7 +472,7 @@ RecognizedOperatorType DetermineRecognizedOperatorType(const std::vector<uint32_
     }
   }
 
-  return RecognizedOperatorType::PairWise;
+  return RecognizedOperatorType::Pairwise;
 }
 
 // Add operator related.
@@ -554,7 +554,7 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
       output = model_builder.GetBuilder().call<emscripten::val>("identity", input);
     } break;
 
-    case RecognizedOperatorType::PairWise: {
+    case RecognizedOperatorType::Pairwise: {
       ORT_RETURN_IF_ERROR(PairwiseOperandProcess(model_builder, node, label_indices, components,
                                                  output_dimensions, num_labels, output, logger));
     } break;
