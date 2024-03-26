@@ -527,13 +527,7 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
       emscripten::val input = model_builder.GetOperand(node.InputDefs()[0]->Name());
       emscripten::val options = emscripten::val::object();
       options.set("keepDimensions", false);
-
-      const auto input_rank = input_shape.size();
-      std::vector<int32_t> axes_data;
-      std::transform(
-          reduced_axes.begin(), reduced_axes.end(), std::back_inserter(axes_data),
-          [input_rank](int64_t axis) -> int32_t { return SafeInt<int32_t>(HandleNegativeAxis(axis, input_rank)); });
-      options.set("axes", emscripten::val::array(axes_data));
+      options.set("axes", emscripten::val::array(reduced_axes));
 
       output = model_builder.GetBuilder().call<emscripten::val>("reduceSum", input, options);
     } break;
