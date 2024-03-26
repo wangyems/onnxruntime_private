@@ -35,6 +35,7 @@ enum class RecognizedOperatorType {
   Identity,
   ReduceSum,
   Transpose,
+  Diagonal,  // TODO: support diagonal, but now wait for webnn triangular op
   Multiply,
   Pairwise,
   Total,
@@ -69,6 +70,7 @@ bool ParseEquationComponents(const InitializedTensorSet& initializers,
   // Parse an equation like 'ij,jk->ik' into components {ij, jk, ik} mapping letters to
   // numeric indices {(0,1}, {1,2}, {0,2}}. The last component is the output.
   // Read first to last character in equation, looking for letters, commas, and one arrow.
+  // TODO: support for parsing ellipsis...
   std::map<char, uint32_t> label_maps;
   std::set<char> repeated_labels;
 
@@ -551,7 +553,7 @@ Status EinsumOpBuilder::AddToModelBuilderImpl(ModelBuilder& model_builder,
     case RecognizedOperatorType::Identity: {
       // identity has not been supported by XNNPack backend, but it will be coming soon.
       emscripten::val input = model_builder.GetOperand(node.InputDefs()[0]->Name());
-      output = model_builder.GetBuilder().call<emscripten::val>("identity", input);
+      output = input;
     } break;
 
     case RecognizedOperatorType::Pairwise: {
