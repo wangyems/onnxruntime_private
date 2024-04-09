@@ -111,6 +111,10 @@ static OpBuilderRegistrations CreateOpBuilderRegistrations() {
     CreateLogicalOpBuilder("LessOrEqual", op_registrations);
   }
 
+  {  // LSTM
+    CreateLstmOpBuilder("LSTM", op_registrations);
+  }
+
   {  // Max/Min
     CreateMaxMinOpBuilder("Max", op_registrations);
     CreateMaxMinOpBuilder("Min", op_registrations);
