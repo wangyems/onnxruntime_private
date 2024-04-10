@@ -1082,13 +1082,11 @@ __global__ void CopyDecoderCrossQKAllStepsKernel(
   const int batch = br / num_return_sequences;
   const int ret_seq_id = br % num_return_sequences;
 
-  // get the real beam index, as the cache_indir_data did not updated in last token
   const int src_beam = beam_indices[batch * num_beams + ret_seq_id] % num_beams;
 
   const int64_t offset_in_cache = ((int64_t)batch * num_beams + src_beam) * max_length + token_decoding_index + context_decoding_len;
   int bm_mapped = ((num_beams <= 1) ? 0: ((token_decoding_index == total_decoding_length - 1) ?  ret_seq_id : cache_indir_data[offset_in_cache]));
   int bi_src = batch * num_beams + bm_mapped;
-
   T* target =  cross_qk_output +
           (((int64_t)br * layer_head_pair_count + (int64_t)pair) * total_decoding_length + token_decoding_index) * frames_of_k;
   const T* src = cross_qk_buffer_data +

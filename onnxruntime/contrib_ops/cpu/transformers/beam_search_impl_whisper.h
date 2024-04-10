@@ -366,7 +366,10 @@ Status BeamSearchWhisper<T>::Execute(const FeedsFetchesManager& encoder_feeds_fe
         cross_qk_layer_head_pairs,
         cross_qk_buffer_data,
         parameters->max_length,
-        this->temp_space_allocator_));
+        this->temp_space_allocator_,
+        ReinterpretAsSpan<const int32_t>(beam_indices),
+        cross_qk_buffer_value,
+        parameters->num_beams));
     }
 
 #ifdef DEBUG_GENERATION
@@ -430,11 +433,12 @@ Status BeamSearchWhisper<T>::Execute(const FeedsFetchesManager& encoder_feeds_fe
   }
 
   if (decoder_subgraph_.output_cross_qk_) {
+      // Copy Cross_QK values to match real sequence size for each batch 
     TensorShape cross_qk_shape{
         static_cast<int64_t>(parameters->batch_size),
         static_cast<int64_t>(parameters->num_return_sequences),
         cross_qk_layer_head_pair_count,
-        static_cast<int64_t>(iteration_counter - 1),
+        static_cast<int64_t>(iteration_counter-1),
         frames_of_k};
     cross_qk_output = this->context_.Output(3, cross_qk_shape);
 
@@ -443,7 +447,7 @@ Status BeamSearchWhisper<T>::Execute(const FeedsFetchesManager& encoder_feeds_fe
     ORT_RETURN_IF_ERROR(this->finalize_decoder_cross_qk_func_(
       this->ort_stream_,
       iteration_counter,
-      parameters->sequence_length,
+      current_length,
       parameters->batch_size,
       parameters->num_beams,
       parameters->max_length,
