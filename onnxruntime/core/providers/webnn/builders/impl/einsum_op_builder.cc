@@ -381,7 +381,7 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
     Use the following fast permutation calculation algorithm
     to calculate the permutation of transpose.
     sequence X[] -> sequence Y[] : permutation P[]
-    X[S[i]] = i, Y[T[i]] = i, P[S[i]] = T[i]
+    X[S[i]] = i, Y[T[i]] = i, P[T[i]] = S[i]
     output_indices is X and target_output_indices is Y
   */
   std::vector<uint32_t> target_output_indices(output_labels.begin(), output_labels.end());
@@ -414,7 +414,7 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
     if (t[i] == -1) {
       t[i] = p++;
     }
-    v[static_cast<uint32_t>(s[i])] = static_cast<uint32_t>(t[i]);
+    v[static_cast<uint32_t>(t[i])] = static_cast<uint32_t>(s[i]);
   }
 
   std::vector<uint32_t> sequence_o(output_indices.size());
