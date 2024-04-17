@@ -117,19 +117,20 @@ const char* CudaErrString<ncclResult_t>(ncclResult_t e) {
 
 template <typename ERRTYPE>
 int GetErrorCode(ERRTYPE err) {
-  return (int)err;
+  return static_cast<int>(err);
 }
 
 #if defined(ENABLE_CUDA_NHWC_OPS) && !defined(__CUDACC__)
 template <>
 int GetErrorCode(cudnn_frontend::error_t err) {
-  return (int)err.get_code();
+  return static_cast<int>(err.get_code());
 }
 #endif
 
 template <typename ERRTYPE, bool THRW, typename SUCCTYPE>
 std::conditional_t<THRW, void, Status> CudaCall(
-    ERRTYPE retCode, const char* exprString, const char* libName, SUCCTYPE successCode, const char* msg, const char* file, const int line) {
+    ERRTYPE retCode, const char* exprString, const char* libName, SUCCTYPE successCode, const char* msg,
+    const char* file, const int line) {
   if (retCode != successCode) {
     try {
 #ifdef _WIN32
@@ -158,7 +159,8 @@ std::conditional_t<THRW, void, Status> CudaCall(
         LOGS_DEFAULT(ERROR) << str;
         return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, str);
       }
-    } catch (const std::exception& e) {  // catch, log, and rethrow since CUDA code sometimes hangs in destruction, so we'd never get to see the error
+    } catch (const std::exception& e) {   // catch, log, and rethrow since CUDA code sometimes hangs in destruction,
+                                          // so we'd never get to see the error
       if constexpr (THRW) {
         ORT_THROW(e.what());
       } else {

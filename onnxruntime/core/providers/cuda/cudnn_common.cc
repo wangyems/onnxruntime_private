@@ -3,6 +3,8 @@
 // Licensed under the MIT License.
 
 #include <utility>
+#include <string>
+#include <vector>
 
 #include "core/providers/cuda/cudnn_common.h"
 #include "core/common/inlined_containers.h"
@@ -60,7 +62,8 @@ Status CudnnTensor::Set(gsl::span<const int64_t> input_dims, cudnnDataType_t dat
     dims[1] = gsl::narrow_cast<int>(input_dims[rank - 1]);
     strides[1] = gsl::narrow_cast<int>(pitches[rank - 1]);
   }
-  CUDNN_RETURN_IF_ERROR(cudnnSetTensorNdDescriptor(tensor_, dataType, static_cast<int>(rank), dims.data(), strides.data()));
+  CUDNN_RETURN_IF_ERROR(cudnnSetTensorNdDescriptor(tensor_, dataType, static_cast<int>(rank),
+                                                   dims.data(), strides.data()));
   return Status::OK();
 }
 
@@ -117,7 +120,8 @@ Status CudnnDataTensor::Set(cudnnDataType_t dataType,
                             const int32_t* seq_lengths) {
   ORT_RETURN_IF_ERROR(CreateTensorIfNeeded());
 
-  // CUDNN_RNN_DATA_LAYOUT_SEQ_MAJOR_UNPACKED works with CUDNN_RNN_PADDED_IO_ENABLED, so that it will auto fill 0 for the shorter sequences
+  // CUDNN_RNN_DATA_LAYOUT_SEQ_MAJOR_UNPACKED works with CUDNN_RNN_PADDED_IO_ENABLED,
+  // so that it will auto fill 0 for the shorter sequences
   cudnnRNNDataLayout_t layout = CUDNN_RNN_DATA_LAYOUT_SEQ_MAJOR_UNPACKED;
   float padding_fill = 0.0f;
   CUDNN_RETURN_IF_ERROR(cudnnSetRNNDataDescriptor(tensor_, dataType, layout,
@@ -251,7 +255,6 @@ const Float8E5M2 Consts<Float8E5M2>::One = Float8E5M2(1.0f, true);
 
 #endif
 
-// TODO: JTischbein Document whether shape is specified as NHWC or NCHW
 std::vector<int64_t> generateStrides(const std::vector<int64_t>& shape, bool channels_last) {
   // For INT8x4 and INT8x32 we still compute standard strides here to input
   // into the cuDNN functions. We will manually scale by resizeFactor in the cpu ref.
