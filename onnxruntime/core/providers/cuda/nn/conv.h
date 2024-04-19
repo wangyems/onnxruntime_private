@@ -6,6 +6,8 @@
 
 #include <list>
 #include <memory>
+#include <vector>
+#include <unordered_map>
 
 #if !defined(__CUDACC__)
 #include <cudnn_frontend.h>

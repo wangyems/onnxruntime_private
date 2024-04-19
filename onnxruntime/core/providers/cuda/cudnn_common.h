@@ -6,8 +6,11 @@
 
 #include <cfloat>
 #include <vector>
+#include <string>
 
 #include "core/providers/cuda/cuda_common.h"
+#include "core/providers/cuda/shared_inc/cudnn_fe_call.h"
+
 #ifndef USE_CUDA_MINIMAL
 #if !defined(__CUDACC__)
 #include <cudnn_frontend.h>
@@ -15,6 +18,8 @@
 
 namespace onnxruntime {
 namespace cuda {
+
+#define CUDNN_FE_RETURN_IF_ERROR(expr) ORT_RETURN_IF_ERROR(CUDNN_FE_CALL(expr))
 
 class CudnnTensor final {
  public:

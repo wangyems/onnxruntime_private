@@ -78,35 +78,6 @@ const char* CudaErrString<cufftResult>(cufftResult e) {
 }
 #endif
 
-#if defined(ENABLE_CUDA_NHWC_OPS) && !defined(__CUDACC__)
-#define CASE_ENUM_TO_STR_CUDNN_FE(x)    \
-  case cudnn_frontend::error_code_t::x: \
-    return #x
-template <>
-const char* CudaErrString<cudnn_frontend::error_t>(cudnn_frontend::error_t x) {
-  cudaDeviceSynchronize();
-  LOGS_DEFAULT(ERROR) << x.get_message();
-  switch (x.get_code()) {
-    CASE_ENUM_TO_STR_CUDNN_FE(OK);
-    CASE_ENUM_TO_STR_CUDNN_FE(ATTRIBUTE_NOT_SET);
-    CASE_ENUM_TO_STR_CUDNN_FE(SHAPE_DEDUCTION_FAILED);
-    CASE_ENUM_TO_STR_CUDNN_FE(INVALID_TENSOR_NAME);
-    CASE_ENUM_TO_STR_CUDNN_FE(INVALID_VARIANT_PACK);
-    CASE_ENUM_TO_STR_CUDNN_FE(GRAPH_NOT_SUPPORTED);
-    CASE_ENUM_TO_STR_CUDNN_FE(GRAPH_EXECUTION_PLAN_CREATION_FAILED);
-    CASE_ENUM_TO_STR_CUDNN_FE(GRAPH_EXECUTION_FAILED);
-    CASE_ENUM_TO_STR_CUDNN_FE(HEURISTIC_QUERY_FAILED);
-    CASE_ENUM_TO_STR_CUDNN_FE(UNSUPPORTED_GRAPH_FORMAT);
-    CASE_ENUM_TO_STR_CUDNN_FE(CUDA_API_FAILED);
-    CASE_ENUM_TO_STR_CUDNN_FE(CUDNN_BACKEND_API_FAILED);
-    CASE_ENUM_TO_STR_CUDNN_FE(INVALID_CUDA_DEVICE);
-    CASE_ENUM_TO_STR_CUDNN_FE(HANDLE_ERROR);
-    default:
-      return "Unknown CUDNN_FRONTEND error status";
-  }
-}
-#endif
-
 #ifdef ORT_USE_NCCL
 template <>
 const char* CudaErrString<ncclResult_t>(ncclResult_t e) {
@@ -119,13 +90,6 @@ template <typename ERRTYPE>
 int GetErrorCode(ERRTYPE err) {
   return static_cast<int>(err);
 }
-
-#if defined(ENABLE_CUDA_NHWC_OPS) && !defined(__CUDACC__)
-template <>
-int GetErrorCode(cudnn_frontend::error_t err) {
-  return static_cast<int>(err.get_code());
-}
-#endif
 
 template <typename ERRTYPE, bool THRW, typename SUCCTYPE>
 std::conditional_t<THRW, void, Status> CudaCall(
@@ -177,10 +141,6 @@ std::conditional_t<THRW, void, Status> CudaCall(
 template Status CudaCall<cudaError, false>(cudaError retCode, const char* exprString, const char* libName, cudaError successCode, const char* msg, const char* file, const int line);
 template void CudaCall<cudaError, true>(cudaError retCode, const char* exprString, const char* libName, cudaError successCode, const char* msg, const char* file, const int line);
 #ifndef USE_CUDA_MINIMAL
-#if defined(ENABLE_CUDA_NHWC_OPS) && !defined(__CUDACC__)
-template Status CudaCall<cudnn_frontend::error_t, false, cudnn_frontend::error_code_t>(cudnn_frontend::error_t retCode, const char* exprString, const char* libName, cudnn_frontend::error_code_t successCode, const char* msg, const char* file, const int line);
-template void CudaCall<cudnn_frontend::error_t, true, cudnn_frontend::error_code_t>(cudnn_frontend::error_t retCode, const char* exprString, const char* libName, cudnn_frontend::error_code_t successCode, const char* msg, const char* file, const int line);
-#endif
 template Status CudaCall<cublasStatus_t, false>(cublasStatus_t retCode, const char* exprString, const char* libName, cublasStatus_t successCode, const char* msg, const char* file, const int line);
 template void CudaCall<cublasStatus_t, true>(cublasStatus_t retCode, const char* exprString, const char* libName, cublasStatus_t successCode, const char* msg, const char* file, const int line);
 template Status CudaCall<cudnnStatus_t, false>(cudnnStatus_t retCode, const char* exprString, const char* libName, cudnnStatus_t successCode, const char* msg, const char* file, const int line);

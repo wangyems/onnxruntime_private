@@ -3,6 +3,8 @@
 // Licensed under the MIT License.
 
 #include <utility>
+#include <algorithm>
+#include <vector>
 
 #include "core/providers/cuda/nn/conv.h"
 #include "core/common/span_utils.h"
@@ -10,6 +12,7 @@
 #include "core/providers/cuda/shared_inc/fpgeneric.h"
 #include "core/providers/cuda/tensor/slice.h"
 #include "core/providers/cuda/tensor/transpose.h"
+#include "core/providers/cuda/shared_inc/cudnn_fe_call.h"
 #include "core/common/status.h"
 
 namespace onnxruntime {
