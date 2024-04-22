@@ -186,6 +186,7 @@ static const InlinedHashMap<std::string, WebnnOpInfo> op_map = {
     {"GlobalLpPool", {"l2Pool2d", false}},
     {"Greater", {"greater", false}},
     {"GreaterOrEqual", {"greaterOrEqual", false}},
+    {"GRU", {"gru", false}},
     {"HardSigmoid", {"hardSigmoid", false}},
     {"HardSwish", {"hardSwish", true}},
     {"Identity", {"identity", false}},
