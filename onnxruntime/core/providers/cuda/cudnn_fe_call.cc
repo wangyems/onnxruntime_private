@@ -27,7 +27,6 @@ const char* CudaErrString(ERRTYPE) {
   case cudnn_frontend::error_code_t::x: \
     return #x
 
-
 template <>
 const char* CudaErrString<cudnn_frontend::error_t>(cudnn_frontend::error_t x) {
   cudaDeviceSynchronize();
@@ -64,16 +63,16 @@ int GetErrorCode(cudnn_frontend::error_t err) {
 
 template <typename ERRTYPE, bool THRW, typename SUCCTYPE>
 std::conditional_t<THRW, void, Status> CudaCall(
-        ERRTYPE retCode, const char* exprString, const char* libName, SUCCTYPE successCode, const char* msg,
-        const char* file, const int line) {
+    ERRTYPE retCode, const char* exprString, const char* libName, SUCCTYPE successCode, const char* msg,
+    const char* file, const int line) {
   if (retCode != successCode) {
     try {
 #ifdef _WIN32
       std::string hostname_str = GetEnvironmentVar("COMPUTERNAME");
-    if (hostname_str.empty()) {
-      hostname_str = "?";
-    }
-    const char* hostname = hostname_str.c_str();
+      if (hostname_str.empty()) {
+        hostname_str = "?";
+      }
+      const char* hostname = hostname_str.c_str();
 #else
       char hostname[HOST_NAME_MAX];
       if (gethostname(hostname, HOST_NAME_MAX) != 0)
@@ -94,7 +93,7 @@ std::conditional_t<THRW, void, Status> CudaCall(
         LOGS_DEFAULT(ERROR) << str;
         return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, str);
       }
-    } catch (const std::exception& e) {   // catch, log, and rethrow since CUDA code sometimes hangs in destruction,
+    } catch (const std::exception& e) {  // catch, log, and rethrow since CUDA code sometimes hangs in destruction,
       // so we'd never get to see the error
       if constexpr (THRW) {
         ORT_THROW(e.what());
@@ -110,12 +109,11 @@ std::conditional_t<THRW, void, Status> CudaCall(
 }
 
 template Status CudaCall<cudnn_frontend::error_t, false, cudnn_frontend::error_code_t>(
-        cudnn_frontend::error_t retCode, const char* exprString, const char* libName,
-        cudnn_frontend::error_code_t successCode, const char* msg, const char* file, const int line);
+    cudnn_frontend::error_t retCode, const char* exprString, const char* libName,
+    cudnn_frontend::error_code_t successCode, const char* msg, const char* file, const int line);
 template void CudaCall<cudnn_frontend::error_t, true, cudnn_frontend::error_code_t>(
-        cudnn_frontend::error_t retCode, const char* exprString, const char* libName,
-        cudnn_frontend::error_code_t successCode, const char* msg, const char* file, const int line);
-
+    cudnn_frontend::error_t retCode, const char* exprString, const char* libName,
+    cudnn_frontend::error_code_t successCode, const char* msg, const char* file, const int line);
 
 #endif
 }  // namespace onnxruntime

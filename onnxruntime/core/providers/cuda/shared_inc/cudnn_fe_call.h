@@ -14,8 +14,8 @@ namespace onnxruntime {
 // Error handling
 // -----------------------------------------------------------------------
 
-#define CUDNN_FE_CALL(expr) (CudaCall<cudnn_frontend::error_t, false,                                                  \
-                                      cudnn_frontend::error_code_t>((cudnn_frontend::error_t)(expr), #expr, "CUDNN_FE",\
-                                      cudnn_frontend::error_code_t::OK, "", __FILE__, __LINE__))
+#define CUDNN_FE_CALL(expr) (CudaCall<cudnn_frontend::error_t, false,                                                   \
+                                      cudnn_frontend::error_code_t>((cudnn_frontend::error_t)(expr), #expr, "CUDNN_FE", \
+                                                                    cudnn_frontend::error_code_t::OK, "", __FILE__, __LINE__))
 
 }  // namespace onnxruntime

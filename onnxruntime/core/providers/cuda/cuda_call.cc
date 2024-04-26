@@ -123,8 +123,8 @@ std::conditional_t<THRW, void, Status> CudaCall(
         LOGS_DEFAULT(ERROR) << str;
         return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, str);
       }
-    } catch (const std::exception& e) {   // catch, log, and rethrow since CUDA code sometimes hangs in destruction,
-                                          // so we'd never get to see the error
+    } catch (const std::exception& e) {  // catch, log, and rethrow since CUDA code sometimes hangs in destruction,
+                                         // so we'd never get to see the error
       if constexpr (THRW) {
         ORT_THROW(e.what());
       } else {
