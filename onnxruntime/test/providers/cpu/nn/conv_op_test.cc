@@ -193,7 +193,8 @@ TEST(ConvTest, Conv1D_Bias) {
   auto expected_vals = {0.37892162799835205f, 0.4625728130340576f, 0.4934738576412201f, 0.44801419973373413f,
                         0.37892162799835205f, 0.2499445676803589f, 0.31682088971138f, 0.32773756980895996f};
 
-  // Due to CUDNN Frontend using TF32 for FP32 operations we get a higher error than using FP32 only, as TF32 has a 10 bit mantissa.
+  // For the CUDA EP: Due to CUDNN Frontend using TF32 for FP32 operations we get a higher error than using FP32 only,
+  // as TF32 has a 10 bit mantissa.
   float epsilon = 1.1e-5f;
 
   TestConvOp(attrs, {X, W, B}, {X_shape, W_shape, B_shape}, expected_vals, Y_shape, false, epsilon);
