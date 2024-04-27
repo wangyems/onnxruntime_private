@@ -434,7 +434,7 @@ Status Conv<T, Layout>::UpdateState(OpKernelContext* context, bool bias_expected
         break;
     }
 
-    auto fuse_bias = cuda_ep->IsFuseBias();
+    auto fuse_bias = cuda_ep->IsFuseConvBias();
 
     ORT_RETURN_IF_ERROR(CreateCudnnFeExecutionPlan(x_dims_cudnn, w_dims_cudnn, B, y_dims_cudnn, handle, heur_mode,
                                                    std::vector<int64_t>(pads.begin(),

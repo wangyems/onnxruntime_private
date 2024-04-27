@@ -1,8 +1,8 @@
 // Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License.
 
+#include "core/providers/cuda/shared_inc/cudnn_fe_call.h"
 #include "core/providers/shared_library/provider_api.h"
-#include "shared_inc/cudnn_fe_call.h"
 #include <core/platform/env.h>
 #if !defined(__CUDACC__)
 #include <cudnn_frontend.h>

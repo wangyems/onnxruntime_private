@@ -629,7 +629,8 @@ TEST(ConvTest, Conv3D_Bias) {
                         -0.39770257472991943f, -0.45317384600639343f, -0.5598302483558655f, -0.2542789578437805f,
                         -0.5359901785850525f, -0.48090484738349915f, -0.38603779673576355f, -0.4991581439971924f};
 
-  // Due to CUDNN Frontend using TF32 for FP32 operations we get a higher error than using FP32 only, as TF32 has a 10 bit mantissa.
+  // For the CUDA EP: Due to CUDNN Frontend using TF32 for FP32 operations we get a higher error than using FP32 only,
+  // as TF32 has a 10 bit mantissa.
   float epsilon = 2.1e-4f;
 
   TestConvOp(attrs, {X, W, B}, {X_shape, W_shape, B_shape}, expected_vals, Y_shape, false, epsilon);
@@ -679,7 +680,8 @@ TEST(ConvTest, ConvDimWithZero) {
   // not handled by ACL
   attrs.excluded_providers.insert(kAclExecutionProvider);
 
-  TestConvOp(attrs, {X, W}, {X_shape, W_shape}, {}, out_shape, false, optional<float>(), OpTester::ExpectResult::kExpectSuccess, "", 10);
+  TestConvOp(attrs, {X, W}, {X_shape, W_shape}, {}, out_shape, false, optional<float>(),
+             OpTester::ExpectResult::kExpectSuccess, "", 10);
 }
 
 TEST(ConvTest, Conv1D_asymmetric_padding) {
