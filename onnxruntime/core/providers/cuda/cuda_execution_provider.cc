@@ -2466,6 +2466,19 @@ static bool ConvTransposeNeedFallbackToCPU(const onnxruntime::Node& node, const 
   return false;
 }
 
+static bool NhwcConvNeedFallbackToCPU(const onnxruntime::Node& node, const logging::Logger& logger,
+                                           [[maybe_unused]] const GraphViewer& graph_viewer,
+                                           [[maybe_unused]] const bool prefer_nhwc) {
+  // NHWC implementation doesn't handle W in NHWC layout if it's not an initializer
+  if (!graph_viewer.IsConstantInitializer(node.InputDefs()[1]->Name(), true)) {
+    LOGS(logger, WARNING) << "Dropping the NhwcConv node: " << node.Name()
+                          << " to CPU because the Cuda EP requires W as initializer for NHWC operation.";
+    return true;
+  }
+
+  return false;
+}
+
 static bool CastNeedFallbackToCPU(const onnxruntime::Node& node) {
   const auto& node_attributes = node.GetAttributes();
   // Check attributes
@@ -2536,6 +2549,9 @@ CUDAExecutionProvider::GetCapability(const onnxruntime::GraphViewer& graph,
     } else if ("Cast" == node.OpType()) {
       not_supported = CastNeedFallbackToCPU(node);
       // cast is not compute heavy, and may be placed outside
+    } else if ("NhwcConv" == node.OpType()) {
+      not_supported = NhwcConvNeedFallbackToCPU(node, logger, graph, IsNHWCPreferred());
+      force_inside = !not_supported;
     }
 
     if (!force_inside && not_supported) {
