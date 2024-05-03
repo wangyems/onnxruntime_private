@@ -157,16 +157,19 @@ struct CudnnConvState {
   const void* z_data = nullptr;
   CudnnConvolutionDescriptor conv_desc;
   bool bias_fused = true;
+  bool act_fused = true;
 
 #if !defined(__CUDACC__)
   std::unique_ptr<cudnn_frontend::graph::Graph> cudnn_fe_graph;
   std::unique_ptr<cudnn_frontend::graph::Graph> cudnn_fe_bias_graph;
   std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_X;
   std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_W;
-  std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_Y;
-  std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_bias_X;
-  std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_bias_Y;
+  std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_conv_Y;
+  std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_Z;
   std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_B;
+  std::shared_ptr<cudnn_frontend::graph::Tensor_attributes> cudnn_fe_Y;
+
+  std::optional<cudnn_frontend::graph::Pointwise_attributes> cudnn_fe_act_attr = std::nullopt;
 
   std::unordered_map<std::shared_ptr<cudnn_frontend::graph::Tensor_attributes>, void*> variant_pack;
   std::unordered_map<std::shared_ptr<cudnn_frontend::graph::Tensor_attributes>, void*> variant_pack_bias;
@@ -231,6 +234,7 @@ class Conv : public CudaKernel {
   Status CreateCudnnFeExecutionPlan(const onnxruntime::TensorShapeVector& x_dims,
                                     const onnxruntime::TensorShapeVector& w_dims,
                                     const Tensor* B,
+                                    const Tensor* Z,
                                     const TensorShapeVector& y_dims,
                                     cudnnContext* handle,
                                     const cudnn_frontend::HeurMode_t heur_mode,
@@ -239,6 +243,7 @@ class Conv : public CudaKernel {
                                     const std::vector<int64_t>& dilations,
                                     const bool bias_expected,
                                     const bool fuse_bias,
+                                    const bool fuse_act,
                                     const bool w_in_nhwc) const;
 #endif
 
@@ -248,6 +253,7 @@ class Conv : public CudaKernel {
   static const cudnnConvolutionFwdAlgo_t kAllAlgos[];
   std::unique_ptr<Tensor> W_;
   bool is_nhwc_domain_;         // prepack is only needed for the Conv in kMSInternalNHWCDomain
+  bool is_fused_node_ = false;  // ensures the node is fused although the session option is not set
   bool W_already_nhwc = false;  // In case NHWC == true and Conv is not in kMSInternalNHWCDomain
 };
 
