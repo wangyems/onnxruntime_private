@@ -56,7 +56,6 @@ static size_t GetMaxWorkspaceSize(cudnnHandle_t handle, const ::onnxruntime::cud
 template <typename T>
 class FusedConv : public onnxruntime::cuda::CudaKernel {
   using CudaT = typename ::onnxruntime::cuda::ToCudaType<T>::MappedType;
-  using CudnnTensor = typename ::onnxruntime::cuda::CudnnTensor;
 
  public:
   FusedConv(const OpKernelInfo& info) : onnxruntime::cuda::CudaKernel(info), conv_attrs_(info) {
@@ -103,7 +102,7 @@ class FusedConv : public onnxruntime::cuda::CudaKernel {
     // set Z
     if (context->InputCount() >= 4) {
       const Tensor* Z = context->Input<Tensor>(3);
-      ORT_RETURN_IF_ERROR(s_.z_tensor.Set(Z->Shape().GetDims(), CudnnTensor::GetDataType<CudaT>()));
+      ORT_RETURN_IF_ERROR(s_.z_tensor.Set(Z->Shape().GetDims(), ::onnxruntime::cuda::CudnnTensor::GetDataType<CudaT>()));
       s_.z_data = reinterpret_cast<const CudaT*>(Z->Data<T>());
     } else {
       s_.z_data = nullptr;
@@ -219,7 +218,7 @@ class FusedConv : public onnxruntime::cuda::CudaKernel {
       }
 
       if (w_dims_changed) {
-        ORT_RETURN_IF_ERROR(s_.w_desc.Set(w_dims, CudnnTensor::GetDataType<CudaT>()));
+        ORT_RETURN_IF_ERROR(s_.w_desc.Set(w_dims, ::onnxruntime::cuda::CudnnTensor::GetDataType<CudaT>()));
       }
 
       // We must delay returning early until here so that the weight dims have been cached properly
@@ -227,12 +226,12 @@ class FusedConv : public onnxruntime::cuda::CudaKernel {
         return Status::OK();
       }
 
-      ORT_RETURN_IF_ERROR(s_.x_tensor.Set(x_dims_cudnn, CudnnTensor::GetDataType<CudaT>()));
-      ORT_RETURN_IF_ERROR(s_.y_tensor.Set(y_dims_cudnn, CudnnTensor::GetDataType<CudaT>()));
+      ORT_RETURN_IF_ERROR(s_.x_tensor.Set(x_dims_cudnn, ::onnxruntime::cuda::CudnnTensor::GetDataType<CudaT>()));
+      ORT_RETURN_IF_ERROR(s_.y_tensor.Set(y_dims_cudnn, ::onnxruntime::cuda::CudnnTensor::GetDataType<CudaT>()));
 
       ORT_RETURN_IF_ERROR(s_.conv_desc.Set(kernel_shape.size(), pads, strides, dilations,
                                            gsl::narrow_cast<int>(conv_attrs_.group),
-                                           CUDNN_CROSS_CORRELATION, CudnnTensor::GetDataType<CudaT>(),
+                                           CUDNN_CROSS_CORRELATION, ::onnxruntime::cuda::CudnnTensor::GetDataType<CudaT>(),
                                            UseTF32()));
 
       if (context->InputCount() >= 3) {
@@ -241,13 +240,13 @@ class FusedConv : public onnxruntime::cuda::CudaKernel {
         ORT_RETURN_IF_NOT(b_shape.NumDimensions() == 1, "bias should be 1D");
         TensorShapeVector b_dims(2 + kernel_shape.size(), 1);
         b_dims[1] = b_shape[0];
-        ORT_RETURN_IF_ERROR(s_.b_tensor.Set(b_dims, CudnnTensor::GetDataType<CudaT>()));
+        ORT_RETURN_IF_ERROR(s_.b_tensor.Set(b_dims, ::onnxruntime::cuda::CudnnTensor::GetDataType<CudaT>()));
         // s_.b_data = reinterpret_cast<const CudaT*>(B->Data<T>());
       } else if (bias_expected) {
         TensorShapeVector b_dims(2 + kernel_shape.size(), 1);
         b_dims[1] = w_dims[0];
         auto malloc_size = b_dims[1] * sizeof(CudaT);
-        ORT_RETURN_IF_ERROR(s_.b_tensor.Set(b_dims, CudnnTensor::GetDataType<CudaT>()));
+        ORT_RETURN_IF_ERROR(s_.b_tensor.Set(b_dims, ::onnxruntime::cuda::CudnnTensor::GetDataType<CudaT>()));
         if (s_.b_zero) {
           CUDA_CALL_THROW(cudaFree(s_.b_zero));
           s_.b_zero = nullptr;
