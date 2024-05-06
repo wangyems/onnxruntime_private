@@ -2468,8 +2468,8 @@ static bool ConvTransposeNeedFallbackToCPU(const onnxruntime::Node& node, const 
 }
 
 static bool NhwcConvNeedFallbackToCPU(const onnxruntime::Node& node, const logging::Logger& logger,
-                                           [[maybe_unused]] const GraphViewer& graph_viewer,
-                                           [[maybe_unused]] const bool prefer_nhwc) {
+                                      [[maybe_unused]] const GraphViewer& graph_viewer,
+                                      [[maybe_unused]] const bool prefer_nhwc) {
   // NHWC implementation doesn't handle W in NHWC layout if it's not an initializer
   if (!graph_viewer.IsConstantInitializer(node.InputDefs()[1]->Name(), true)) {
     LOGS(logger, WARNING) << "Dropping the NhwcConv node: " << node.Name()

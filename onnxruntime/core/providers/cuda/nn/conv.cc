@@ -273,7 +273,12 @@ Status Conv<T, Layout>::CreateCudnnFeExecutionPlan(const onnxruntime::TensorShap
   auto supported = s_.cudnn_fe_graph->check_support(handle);
 
   if (supported.is_good()) {
-    CUDNN_FE_RETURN_IF_ERROR(s_.cudnn_fe_graph->build_plans(handle));
+    cudnn_frontend::error_t build_status = s_.cudnn_fe_graph->build_plans(handle);
+    if (build_status.is_bad()) {
+      LOGS_DEFAULT(ERROR) << "cudnn_frontend graph:\n"
+                          << *s_.cudnn_fe_graph;
+      CUDNN_FE_RETURN_IF_ERROR(build_status);
+    }
     s_.workspace_bytes = s_.cudnn_fe_graph->get_workspace_size();
     return Status::OK();
   } else if ((fuse_bias && (bias_expected || B != nullptr)) || fuse_act) {
@@ -495,7 +500,7 @@ Status Conv<T, Layout>::ComputeInternal(OpKernelContext* context) const {
   if (s_.Y->Shape().Size() == 0) {
     return Status::OK();
   }
-  float alpha = onnxruntime::cuda::Consts<CudaT>::One;
+  const auto alpha = onnxruntime::cuda::Consts<CudaT>::One;
   auto cudnn_handle = GetCudnnHandle(context);
 #if !defined(__CUDACC__)
   s_.variant_pack.insert_or_assign(s_.cudnn_fe_X, const_cast<void*>(s_.x_data));
