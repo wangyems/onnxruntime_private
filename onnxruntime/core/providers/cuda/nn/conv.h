@@ -250,7 +250,6 @@ class Conv : public CudaKernel {
   ConvAttributes conv_attrs_;
   mutable CudnnConvState<cudnnConvolutionFwdAlgoPerf_t> s_;
   constexpr static auto kDefaultConvAlgo = CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM;
-  static const cudnnConvolutionFwdAlgo_t kAllAlgos[];
   std::unique_ptr<Tensor> W_;
   bool is_nhwc_domain_;         // prepack is only needed for the Conv in kMSInternalNHWCDomain
   bool is_fused_node_ = false;  // ensures the node is fused although the session option is not set

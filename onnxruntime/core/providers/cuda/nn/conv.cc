@@ -6,14 +6,12 @@
 #include <algorithm>
 #include <vector>
 
+#include "core/common/status.h"
 #include "core/providers/cuda/nn/conv.h"
 #include "core/common/span_utils.h"
 #include "core/providers/cuda/cuda_common.h"
-#include "core/providers/cuda/shared_inc/fpgeneric.h"
-#include "core/providers/cuda/tensor/slice.h"
 #include "core/providers/cuda/tensor/transpose.h"
 #include "core/providers/cuda/shared_inc/cudnn_fe_call.h"
-#include "core/common/status.h"
 
 namespace onnxruntime {
 namespace cuda {
@@ -46,61 +44,6 @@ REGISTER_KERNEL_TYPED(MLFloat16, kOnnxDomain, false)
 REGISTER_KERNEL_TYPED(float, kMSInternalNHWCDomain, true)
 REGISTER_KERNEL_TYPED(MLFloat16, kMSInternalNHWCDomain, true)
 #endif
-
-template <typename T, bool NHWC>
-const cudnnConvolutionFwdAlgo_t Conv<T, NHWC>::kAllAlgos[] = {
-    CUDNN_CONVOLUTION_FWD_ALGO_GEMM,
-    CUDNN_CONVOLUTION_FWD_ALGO_FFT,
-    CUDNN_CONVOLUTION_FWD_ALGO_FFT_TILING,
-    CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_GEMM,
-    CUDNN_CONVOLUTION_FWD_ALGO_IMPLICIT_PRECOMP_GEMM,
-    CUDNN_CONVOLUTION_FWD_ALGO_DIRECT,
-    CUDNN_CONVOLUTION_FWD_ALGO_WINOGRAD,
-    CUDNN_CONVOLUTION_FWD_ALGO_WINOGRAD_NONFUSED,
-};
-
-cudnnStatus_t GetWorkspaceSize(cudnnHandle_t handle,
-                               const CudnnConvState<cudnnConvolutionFwdAlgoPerf_t>& s,
-                               cudnnConvolutionFwdAlgo_t algo,
-                               size_t* sz) {
-  return cudnnGetConvolutionForwardWorkspaceSize(handle, s.x_tensor, s.w_desc, s.conv_desc, s.y_tensor, algo, sz);
-}
-
-size_t GetMaxWorkspaceSize(cudnnHandle_t handle, const CudnnConvState<cudnnConvolutionFwdAlgoPerf_t>& s,
-                           const cudnnConvolutionFwdAlgo_t* algo, int n_algo) {
-  // TODO: get maximum available size from memory arena
-  size_t free, total;
-  CUDA_CALL_THROW(cudaMemGetInfo(&free, &total));
-  // Assuming 10% of fragmentation
-  free = static_cast<size_t>(static_cast<double>(free) * 0.9);
-  size_t max_ws_size = 0;
-  for (int i = 0; i < n_algo; i++) {
-    cudnnStatus_t err;
-    size_t sz;
-    err = GetWorkspaceSize(handle, s, algo[i], &sz);
-    if (CUDNN_STATUS_SUCCESS != err || sz == 0 || sz < max_ws_size || sz > free) continue;
-    max_ws_size = sz;
-  }
-  return max_ws_size;
-}
-
-Status SliceOutUnwantedOutputSection(cudaStream_t stream,
-                                     const void* input_data, gsl::span<const int64_t> input_dims,
-                                     void* output_data,
-                                     const gsl::span<const int64_t>& output_dims,
-                                     const gsl::span<const int64_t>& starts,
-                                     const gsl::span<const int64_t>& ends,
-                                     const gsl::span<const int64_t>& axes,
-                                     size_t element_size) {
-  SliceOp::PrepareForComputeMetadata compute_metadata(input_dims);
-
-  ORT_THROW_IF_ERROR(SliceBase::PrepareForCompute(starts, ends, axes, compute_metadata));
-
-  // As a sanity check, ensure that the slice operator's output shape matches with the expected output shape
-  ORT_ENFORCE(SpanEq(gsl::make_span(compute_metadata.output_dims_), output_dims));
-
-  return SliceCuda::Impl(stream, input_data, input_dims, output_data, compute_metadata, element_size);
-}
 
 // First input (in this case X) is in case NHWC == true also in NHWC format, the other inputs in NCHW
 template <typename T, bool NHWC>
