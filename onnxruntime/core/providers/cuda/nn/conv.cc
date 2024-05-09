@@ -210,9 +210,17 @@ Status Conv<T, Layout>::CreateCudnnFeExecutionPlan(const onnxruntime::TensorShap
   s_.cudnn_fe_Y->set_stride(cudnn_fe_y_tensor.get_stride());
   s_.cudnn_fe_Y->set_output(true);
 
-  CUDNN_FE_RETURN_IF_ERROR(s_.cudnn_fe_graph->validate());
-  CUDNN_FE_RETURN_IF_ERROR(s_.cudnn_fe_graph->build_operation_graph(handle));
-  CUDNN_FE_RETURN_IF_ERROR(s_.cudnn_fe_graph->create_execution_plans({heur_mode}));
+  try {
+    CUDNN_FE_RETURN_IF_ERROR(s_.cudnn_fe_graph->validate());
+    CUDNN_FE_RETURN_IF_ERROR(s_.cudnn_fe_graph->build_operation_graph(handle));
+    CUDNN_FE_RETURN_IF_ERROR(s_.cudnn_fe_graph->create_execution_plans({heur_mode}));
+  } catch (cudnn_frontend::cudnnException& e) {
+    LOGS_DEFAULT(ERROR) << "cudnn_frontend graph:\n"
+                        << *s_.cudnn_fe_graph;
+    return Status(common::StatusCategory::ONNXRUNTIME,
+                  common::StatusCode::EP_FAIL, e.what());
+  }
+
   auto supported = s_.cudnn_fe_graph->check_support(handle);
 
   if (supported.is_good()) {
