@@ -50,6 +50,7 @@ operators and the supported opset domain/versions in **WebNN EP** by ONNX Runtim
 | LessOrEqual | ai.onnx(12-15, 16+) | lesserOrEqual | ✗ | ✓ | |
 | Log | ai.onnx(7-12, 13+) | log | ✗ | ✓ | |
 | LpPool | ai.onnx(7-10, 11-17, 18+) | l2Pool2d | ✗ | ✓ | Only supports 4-D input, 2-D 'kernel_shape', 'p' value is 2 |
+| LSTM | ai.onnx(7-13, 14+) | lstm | ✗ | ✓ | Only supports 'layout' == 0, 'input_forget' == 0. 'clip' is not supported. Each activation function in 'activations' should be one of 'Affine', 'Relu', 'LeakyRelu', 'Tanh', 'Sigmoid', 'HardSigmoid', 'Elu', 'Softsign', 'Softplus'. 'activation_alpha' and 'activation_beta' are only supported when 'direction' != 'bidirectional'. 'sequence_lens' if present should be constant with values equal to the first dimension length of input 'X' |
 | MatMul | ai.onnx(7-8, 9-12, 13+) | matmul | ✓ | ✓ | WebNN CPU doesn't support broadcasting for MatMul |
 | Max | ai.onnx(7, 8-11, 12, 13+) | max | ✓ | ✓ | |
 | MaxPool | ai.onnx(7, 8-9, 10, 11, 12+) | maxPool2d | ✓ | ✓ | Only supports 4-D input, 2-D 'kernel_shape', 'storage_order' != 1, one output |
