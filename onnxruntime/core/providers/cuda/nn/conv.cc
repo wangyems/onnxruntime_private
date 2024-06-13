@@ -415,6 +415,7 @@ Status Conv<T, Layout>::UpdateState(OpKernelContext* context, bool bias_expected
         break;
       case 2:
         heur_mode = cudnn_frontend::HeurMode_t::FALLBACK;
+        LOGS_DEFAULT(WARNING) << "OP " << CudaKernel::Node().OpType() << "(" << CudaKernel::Node().Name() << ") running in Fallback mode. May be extremely slow.";
         break;
       default:
         heur_mode = cudnn_frontend::HeurMode_t::A;
