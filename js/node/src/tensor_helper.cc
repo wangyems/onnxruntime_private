@@ -182,19 +182,17 @@ Ort::Value NapiValueToOrtValue(Napi::Env env, Napi::Value value, OrtMemoryInfo *
 
     char *buffer = reinterpret_cast<char *>(tensorDataTypedArray.ArrayBuffer().Data());
     size_t bufferByteOffset = tensorDataTypedArray.ByteOffset();
-    // there is a bug in TypedArray::ElementSize(): https://github.com/nodejs/node-addon-api/pull/705
-    // TODO: change to TypedArray::ByteLength() in next node-addon-api release.
-    size_t bufferByteLength = tensorDataTypedArray.ElementLength() * DATA_TYPE_ELEMENT_SIZE_MAP[elemType];
+    size_t bufferByteLength = tensorDataTypedArray.ByteLength();
     return Ort::Value::CreateTensor(memory_info, buffer + bufferByteOffset, bufferByteLength,
                                     dims.empty() ? nullptr : &dims[0], dims.size(), elemType);
   }
 }
 
-Napi::Value OrtValueToNapiValue(Napi::Env env, Ort::Value &value) {
+Napi::Value OrtValueToNapiValue(Napi::Env env, std::unique_ptr<Ort::Value> value) {
   Napi::EscapableHandleScope scope(env);
   auto returnValue = Napi::Object::New(env);
 
-  auto typeInfo = value.GetTypeInfo();
+  auto typeInfo = value->GetTypeInfo();
   auto onnxType = typeInfo.GetONNXType();
 
   ORT_NAPI_THROW_ERROR_IF(onnxType != ONNX_TYPE_TENSOR, env, "Non tensor type is temporarily not supported.");
@@ -229,12 +227,12 @@ Napi::Value OrtValueToNapiValue(Napi::Env env, Ort::Value &value) {
     // string data
     auto stringArray = Napi::Array::New(env, size);
     if (size > 0) {
-      auto tempBufferLength = value.GetStringTensorDataLength();
+      auto tempBufferLength = value->GetStringTensorDataLength();
       // create buffer of length (tempBufferLength + 1) to make sure `&tempBuffer[0]` is always valid
       std::vector<char> tempBuffer(tempBufferLength + 1);
       std::vector<size_t> tempOffsets;
       tempOffsets.resize(size);
-      value.GetStringTensorContent(&tempBuffer[0], tempBufferLength, &tempOffsets[0], size);
+      value->GetStringTensorContent(&tempBuffer[0], tempBufferLength, &tempOffsets[0], size);
 
       for (uint32_t i = 0; i < size; i++) {
         stringArray[i] =
@@ -245,10 +243,22 @@ Napi::Value OrtValueToNapiValue(Napi::Env env, Ort::Value &value) {
     returnValue.Set("data", Napi::Value(env, stringArray));
   } else {
     // number data
-    // TODO: optimize memory
-    auto arrayBuffer = Napi::ArrayBuffer::New(env, size * DATA_TYPE_ELEMENT_SIZE_MAP[elemType]);
-    if (size > 0) {
-      memcpy(arrayBuffer.Data(), value.GetTensorRawData(), size * DATA_TYPE_ELEMENT_SIZE_MAP[elemType]);
+    size_t dataLength = size * DATA_TYPE_ELEMENT_SIZE_MAP[elemType];
+    Napi::ArrayBuffer arrayBuffer;
+    try {
+      if (dataLength > 0) {
+        arrayBuffer = Napi::ArrayBuffer::New(
+            env, value->GetTensorMutableRawData(), dataLength,
+            [](Napi::Env env, void *data, Ort::Value *value) { delete value; }, value.get());
+        value.release();
+      } else {
+        arrayBuffer = Napi::ArrayBuffer::New(env, dataLength);
+      }
+    } catch (const Napi::Error &e) {
+      // if failed to create external array buffer, fallback to copy
+      arrayBuffer = Napi::ArrayBuffer::New(env, dataLength);
+      void *bufferData = arrayBuffer.Data();
+      memcpy(bufferData, value->GetTensorRawData(), dataLength);
     }
     napi_value typedArrayData;
     napi_status status =
