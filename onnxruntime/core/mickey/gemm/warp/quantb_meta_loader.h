@@ -331,6 +331,7 @@ struct QuantBScaleLoader<cutlass::MatrixShape<block_size_, 1>, WarpShape_, Eleme
     // only one scale/offset, so the block size cannot be smaller than 16.
     static_assert(QuantBlocking::kRow % 16 == 0);
 
+#if defined(__CUDA_ARCH__) && (__CUDA_ARCH__ >= 800)
     const int meta_k = k_iter / (QuantBlocking::kRow / 16);
     half const* scales = reinterpret_cast<half const*>(frag_scales.data() + meta_k * kMetaFragSize);
     [[maybe_unused]] half const* offsets = nullptr;
@@ -391,6 +392,14 @@ struct QuantBScaleLoader<cutlass::MatrixShape<block_size_, 1>, WarpShape_, Eleme
         }
       }
     }
+#else
+    assert(false);
+    (void)(k_iter);
+    (void)(frag_pack_b);
+    (void)(frag_scales);
+    (void)(frag_offsets);
+    (void)(frag_b);
+#endif  // __CUDA_ARCH__
   }
 
 };

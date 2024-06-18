@@ -193,7 +193,7 @@ struct BlockwiseQuantization {
       gsl::span<ElementT> scales_prepacked  // <- quant scales prepacked, same size buffer
   ) {
 #ifndef NDEBUG
-    ORT_ENFORCE(weight_dimension_supported(rows, columns),
+    ORT_ENFORCE(weight_dimension_supported(static_cast<int>(rows), static_cast<int>(columns)),
                 "This function must be guarded by weight_dimension_supported()!");
 #endif
     auto meta_shape = get_quant_meta_shape(static_cast<int>(rows), static_cast<int>(columns));
@@ -268,7 +268,7 @@ struct BlockwiseQuantization {
   ) {
 
 #ifndef NDEBUG
-    ORT_ENFORCE(weight_dimension_supported(rows, columns),
+    ORT_ENFORCE(weight_dimension_supported(static_cast<int>(rows), static_cast<int>(columns)),
                 "This function must be guarded by weight_dimension_supported()!");
 #endif
     auto meta_shape = get_quant_meta_shape(static_cast<int>(rows), static_cast<int>(columns));
