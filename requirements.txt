@@ -1,0 +1,6 @@
+coloredlogs
+flatbuffers
+numpy >= 1.19.0
+packaging
+protobuf
+sympy
