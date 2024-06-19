@@ -1,0 +1,26 @@
+	:Œ
+<
+inp
+splitout1out2split"Split*
+axisÿÿÿÿÿÿÿÿÿ 
+F
+out2gelu_out	QuickGelu"	QuickGelu*
+alpha#ÛÙ? :com.microsoft
+
+out1
+gelu_outoutmul"MulSplit_QuickGelu_FusionZ
+inp
+
+L
+6
+Ø
+Z
+split
+
+
+b
+out
+
+L
+6
+¬B

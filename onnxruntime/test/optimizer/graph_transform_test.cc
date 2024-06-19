@@ -72,6 +72,7 @@
 #include "core/optimizer/rule_based_graph_transformer.h"
 #include "core/optimizer/shape_input_merge.h"
 #include "core/optimizer/slice_elimination.h"
+#include "core/optimizer/split_quickgelu_fusion.h"
 #include "core/optimizer/unsqueeze_elimination.h"
 #include "core/optimizer/utils.h"
 #include "core/platform/env.h"
@@ -574,6 +575,37 @@ TEST_F(GraphTransformationTests, SliceElimination) {
     op_to_count = CountOpsInGraph(graph);
     // Only one Slice operator is redundant and is removed.
     ASSERT_TRUE(op_to_count["Slice"] == --initial_slice_num);
+  }
+}
+
+// Test Split + QuickGeLU Fusion
+// What is level 1 or level 2 in TransformerLevel?
+TEST_F(GraphTransformationTests, SplitQuickGeluFusionTest) {
+  constexpr const ORTCHAR_T* model_uri = MODEL_FOLDER "fusion/split_quickgelu_fusion.onnx";
+  std::shared_ptr<Model> p_model;
+  ASSERT_STATUS_OK(Model::Load(model_uri, p_model, nullptr, *logger_));
+  Graph& graph = p_model->MainGraph();
+
+  onnxruntime::GraphTransformerManager graph_transformation_mgr{5};
+  ASSERT_STATUS_OK(graph_transformation_mgr.Register(std::make_unique<SplitQuickGeluFusion>(), TransformerLevel::Level2));
+  std::map<std::string, int> before_op_to_count = CountOpsInGraph(graph);
+  ASSERT_EQ(before_op_to_count["Split"], 1);
+  ASSERT_EQ(before_op_to_count["com.microsoft.QuickGelu"], 1);
+  ASSERT_EQ(before_op_to_count["Mul"], 1);
+  ASSERT_EQ(before_op_to_count["com.microsoft.S2SModelSplitQuickGelu"], 0);
+  ASSERT_STATUS_OK(graph_transformation_mgr.ApplyTransformers(graph, TransformerLevel::Level2, *logger_));
+
+  std::map<std::string, int> op_to_count = CountOpsInGraph(graph);
+  ASSERT_EQ(op_to_count["Split"], 0);
+  ASSERT_EQ(op_to_count["com.microsoft.QuickGelu"], 0);
+  ASSERT_EQ(op_to_count["Mul"], 0);
+  ASSERT_EQ(op_to_count["com.microsoft.S2SModelSplitQuickGelu"], 1);
+
+  for (const Node& node : graph.Nodes()) {
+    if (node.OpType() == "S2SModelSplitQuickGelu") {
+      // S2SModelSplitQuickGelu should have only 1 input
+      EXPECT_EQ(node.InputDefs().size(), 1u) << "S2SModelSplitQuickGelu number of inputs does not equal to 1. Got:" << node.InputDefs().size();
+    }
   }
 }
 
