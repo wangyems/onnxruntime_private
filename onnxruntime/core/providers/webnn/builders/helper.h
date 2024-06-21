@@ -177,6 +177,7 @@ static const InlinedHashMap<std::string, WebnnOpInfo> op_map = {
     {"Erf", {"erf", false}},
     {"Exp", {"exp", true}},
     {"Expand", {"expand", false}},
+    {"Einsum", {"matmul", true}},
     {"Flatten", {"reshape", true}},
     {"Floor", {"floor", true}},
     {"Gather", {"gather", true}},
