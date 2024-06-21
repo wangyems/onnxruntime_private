@@ -17,7 +17,7 @@
 
 #include "core/common/common.h"
 #include "core/common/path.h"
-#include "core/common/gsl.h"
+#include <gsl/gsl>
 
 #include "tvm_api.h"
 
