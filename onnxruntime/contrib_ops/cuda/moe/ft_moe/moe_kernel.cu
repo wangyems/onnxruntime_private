@@ -171,7 +171,7 @@ __launch_bounds__(TPB) __global__
 
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 530
 template <typename T, int TPB>
-__launch_bounds__(TPB) __global__ void sparse_mixer(const T*, T*, int*, int*, int, T) {
+__launch_bounds__(TPB) __global__ void sparse_mixer(const T*, T*, int*, int*, int, float) {
   // Does not support pre-Kepler architectures
   ;
 }
@@ -179,7 +179,7 @@ __launch_bounds__(TPB) __global__ void sparse_mixer(const T*, T*, int*, int*, in
 // bugbug: assume expert < TPB
 template <typename T, int TPB>
 __launch_bounds__(TPB) __global__
-    void sparse_mixer(const T* inputs, T* output, int* indices, int* source_rows, int num_experts, T jitter_eps) {
+    void sparse_mixer(const T* inputs, T* output, int* indices, int* source_rows, int num_experts, float jitter_eps) {
   using cub_kvp = cub::KeyValuePair<int, T>;
   using KVBlockReduce = cub::BlockReduce<cub_kvp, TPB>;
   __shared__ typename KVBlockReduce::TempStorage kvTmpStorage;
@@ -191,10 +191,9 @@ __launch_bounds__(TPB) __global__
   const int block_row = blockIdx.x;
 
   const int thread_read_offset = blockIdx.x * num_experts;
-  float output_row_sum = 0.f;
 
   static constexpr int K = 2;
-  T factor[K];
+  float factor[K];
   bool logits_mask[K];
 
   for (int k_idx = 0; k_idx < K; ++k_idx) {
@@ -218,12 +217,12 @@ __launch_bounds__(TPB) __global__
       thread_kvp = arg_max(inp_kvp, thread_kvp);
     }
 
-    const cub_kvp result_kvp = BlockReduce(kvTmpStorage).Reduce(thread_kvp, arg_max);
+    const cub_kvp result_kvp = KVBlockReduce(kvTmpStorage).Reduce(thread_kvp, arg_max);
 
     for (int expert = threadIdx.x; expert < num_experts; expert += TPB) {
       const int idx = thread_read_offset + expert;
-      factor[k_idx] = max(abs(inputs[idx]), result_kvp.value);
-      logits_mask[k_idx] = (result_kvp.value - inputs[idx]) > (2 * jitter_eps * factor[k_idx]);
+      factor[k_idx] = max(abs((float)inputs[idx]), (float)result_kvp.value);
+      logits_mask[k_idx] = ((float)result_kvp.value - (float)inputs[idx]) > (2 * jitter_eps * factor[k_idx]);
       if (k_idx == 1 && expert == result_kvp.key) {
         logits_mask[1] = true;
       }
@@ -281,14 +280,9 @@ __launch_bounds__(TPB) __global__
       const int idx = K * block_row + k_idx;
       const int input_idx = thread_row_offset + indices[idx];
       output[idx] = logits_mask[k_idx] ? 0 : exp((static_cast<float>(inputs[input_idx]) - float_max)) * normalizing_factor;
+      printf("output[%d] = %f\n", idx, (float)output[idx]);
     }
   }
-
-  //   for (int ii = threadIdx.x; ii < num_experts; ii += TPB) {
-  //     const int idx = thread_row_offset + ii;
-  //     const float val = exp((static_cast<float>(input[idx]) - float_max)) * normalizing_factor;
-  //     output[idx] = T(val);
-  //   }
 }
 #endif
 
@@ -531,6 +525,13 @@ template <typename T>
 void topk_gating_softmax_kernelLauncher(const T* input, const bool* finished, T* output, T* softmax_temp_output,
                                         int* indices, int* source_row, int num_rows, int num_experts, int k,
                                         bool normalize_routing_weights, cudaStream_t stream) {
+  if (true) {
+    const int TPB = 256;
+    sparse_mixer<T, TPB><<<num_rows, TPB, 0, stream>>>(input, output, indices, source_row, num_experts, 0.01f);
+
+    return;
+  }
+
   static constexpr int WARPS_PER_TB = 4;
 
   switch (num_experts) {
