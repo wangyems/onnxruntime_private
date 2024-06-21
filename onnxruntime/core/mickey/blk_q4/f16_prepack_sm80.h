@@ -266,7 +266,6 @@ struct BlockwiseQuantization {
       gsl::span<uint8_t const> offsets,     // <- quant offsets, int4, column major layout
       gsl::span<uint8_t> offsets_prepacked  // <- quant offsets prepacked, double size buffer
   ) {
-
 #ifndef NDEBUG
     ORT_ENFORCE(weight_dimension_supported(static_cast<int>(rows), static_cast<int>(columns)),
                 "This function must be guarded by weight_dimension_supported()!");
