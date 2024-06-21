@@ -176,13 +176,13 @@ __launch_bounds__(TPB) __global__ void sparse_mixer(const T*, const bool*, T*, i
   ;
 }
 #else
-// bugbug: assume expert < TPB, k = 2
+// bugbug: assume expert < TPB
 template <typename T, int TPB>
 __launch_bounds__(TPB) __global__
-    void sparse_mixer(const T* inputs, T* output, int* indices, int* source_rows, int num_experts, int k, T jitter_eps) {
+    void sparse_mixer(const T* inputs, T* output, int* indices, int* source_rows, int num_experts, T jitter_eps) {
   using cub_kvp = cub::KeyValuePair<int, T>;
-  using BlockReduce = cub::BlockReduce<cub_kvp, TPB>;
-  __shared__ typename BlockReduce::TempStorage tmpStorage;
+  using KVBlockReduce = cub::BlockReduce<cub_kvp, TPB>;
+  __shared__ typename KVBlockReduce::TempStorage tmpStorage;
 
   cub_kvp thread_kvp;
   cub::ArgMax arg_max;
@@ -193,11 +193,11 @@ __launch_bounds__(TPB) __global__
   const int thread_read_offset = blockIdx.x * num_experts;
   float output_row_sum = 0.f;
 
-  // Make it tempalate
-  T factor[2];
-  bool logits_mask[2];
+  const int K = 2;
+  T factor[K];
+  bool logits_mask[K];
 
-  for (int k_idx = 0; k_idx < k; ++k_idx) {
+  for (int k_idx = 0; k_idx < K; ++k_idx) {
     thread_kvp.key = 0;
     thread_kvp.value = T(-1.f);
 
@@ -224,16 +224,71 @@ __launch_bounds__(TPB) __global__
       const int idx = thread_read_offset + expert;
       factor[k_idx] = max(abs(inputs[idx]), result_kvp.value);
       logits_mask[k_idx] = (result_kvp.value - inputs[idx]) > (2 * jitter_eps * factor[k_idx]);
+      if (k_idx == 1 && expert == result_kvp.key) {
+        logits_mask[1] = true;
+      }
     }
 
     if (threadIdx.x == 0) {
-      const int idx = k * block_row + k_idx;
-      output[idx] = result_kvp.value;
+      const int idx = K * block_row + k_idx;
+      //   output[idx] = result_kvp.value;
       indices[idx] = result_kvp.key;
       source_rows[idx] = k_idx * num_rows + block_row;
     }
     __syncthreads();
   }
+
+  using BlockReduce = cub::BlockReduce<float, TPB>;
+  __shared__ typename BlockReduce::TempStorage tmpStorage;
+
+  __shared__ float normalizing_factor;
+  __shared__ float float_max;
+
+  const int thread_row_offset = blockIdx.x * num_experts;
+
+  for (int k_idx = 0; k_idx < K; ++k_idx) {
+    cub::Sum sum;
+    float threadData(-FLT_MAX);
+
+    for (int ii = threadIdx.x; ii < num_experts; ii += TPB) {
+      const int idx = thread_row_offset + ii;
+      if (!logits_mask[k_idx]) {
+        threadData = max(static_cast<float>(inputs[idx]), threadData);
+      }
+    }
+
+    const float maxElem = BlockReduce(tmpStorage).Reduce(threadData, cub::Max());
+    if (threadIdx.x == 0) {
+      float_max = maxElem;
+    }
+    __syncthreads();
+
+    threadData = 0;
+
+    for (int ii = threadIdx.x; ii < num_experts; ii += TPB) {
+      const int idx = thread_row_offset + ii;
+      threadData += logits_mask[k_idx] ? 0 : exp((static_cast<float>(input[idx]) - float_max));
+    }
+
+    const auto Z = BlockReduce(tmpStorage).Reduce(threadData, sum);
+
+    if (threadIdx.x == 0) {
+      normalizing_factor = 1.f / Z;
+    }
+    __syncthreads();
+
+    if (threadIdx.x == 0) {
+      const int idx = K * block_row + k_idx;
+      const int input_idx = thread_row_offset + indices[idx];
+      output[idx] = logits_mask[k_idx] ? 0 : exp((static_cast<float>(input[input_idx]) - float_max)) * normalizing_factor;
+    }
+  }
+
+  //   for (int ii = threadIdx.x; ii < num_experts; ii += TPB) {
+  //     const int idx = thread_row_offset + ii;
+  //     const float val = exp((static_cast<float>(input[idx]) - float_max)) * normalizing_factor;
+  //     output[idx] = T(val);
+  //   }
 }
 #endif
 
