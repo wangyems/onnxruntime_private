@@ -168,8 +168,8 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
   Step 1. Transpose and Reshape
 
   (0/1,0/1,0/1) means dim i whether appears in (A,B,C)
-  For new A, it has three segements [...a_1..., a_2, a_3], a_1 has multiple dims, a_2 and a_3 only have one dim respectively
-  For new B, it has three segements [...b_1..., b_2, b_3], b_1 has multiple dims, b_2 and b_3 only have one dim respectively
+  For new A, it has three segments [...a_1..., a_2, a_3], a_1 has multiple dims, a_2 and a_3 only have one dim respectively
+  For new B, it has three segments [...b_1..., b_2, b_3], b_1 has multiple dims, b_2 and b_3 only have one dim respectively
   a_1 and b_1 are batch dims, and [a_2,a_3], [b_2,b_3] are for matmul
 
   case (1,0,0) and (0,1,0): reduce, here we treat it as batch dimension, and reduceSum at the end.
@@ -179,7 +179,7 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
   case (0,1,1): gemm dim for B, put it in b_3
   case (1,1,0): summation dim / gemm dim for both A and B, put it in a_3 and b_2
 
-  Attention:
+  Notes:
     # of (1,1,0) maybe > 1, flatten / reshape a_3 and b_2
     # of (1,1,0) maybe = 0, add one additional dim for a_3 and b_2
   */
@@ -250,9 +250,9 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
   }
 
   // Matrix multiplication can be formatted in (...,i,j) * (...,j,k) ==> (...,i,k)
-  // Even inner and outter product can be reformatted as this.
+  // Even inner and outer product can be reformatted as this.
   // Inner product (1,i) * (i,1) ==> (1,1)
-  // Outter product (i,1) * (1,j) ==> (i,j)
+  // Outer product (i,1) * (1,j) ==> (i,j)
   // i.e., in our expression, (a_2,a_3) * (b_2,b_3) ==> (a_2,b_3)
 
   if (!a_flag) {
@@ -402,7 +402,8 @@ Status PairwiseOperandProcess(ModelBuilder& model_builder,
   }
 
   uint32_t p = target_output_indices.size();
-  std::vector<int64_t> s(output_indices.size(), -1), t(output_indices.size(), -1);
+  std::vector<int64_t> s(output_indices.size(), -1);
+  std::vector<int64_t> t(output_indices.size(), -1);
   std::vector<uint32_t> v(output_indices.size(), 0);
   for (uint32_t i = 0; i < output_indices.size(); ++i) {
     s[output_indices[i]] = i;
