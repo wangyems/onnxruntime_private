@@ -183,6 +183,7 @@ __launch_bounds__(TPB) __global__
     using cub_kvp = cub::KeyValuePair<int, T>;
     using KVBlockReduce = cub::BlockReduce<cub_kvp, TPB>;
     __shared__ typename KVBlockReduce::TempStorage kvTmpStorage;
+    __shared__ float result_kvp_value;
 
     cub_kvp thread_kvp;
     cub::ArgMax arg_max;
@@ -218,23 +219,22 @@ __launch_bounds__(TPB) __global__
         }
 
         const cub_kvp result_kvp = KVBlockReduce(kvTmpStorage).Reduce(thread_kvp, arg_max);
-
-        for (int expert = threadIdx.x; expert < num_experts; expert += TPB) {
-            const int idx = thread_read_offset + expert;
-            factor[k_idx] = max(abs((float)inputs[idx]), (float)result_kvp.value);
-            logits_mask[k_idx] = ((float)result_kvp.value - (float)inputs[idx]) > (2 * jitter_eps * factor[k_idx]);
-            if (k_idx == 1 && expert == indices[K * block_row]) {
-                logits_mask[1] = true;
-            }
-        }
-
         if (threadIdx.x == 0) {
             const int idx = K * block_row + k_idx;
-            output[idx] = result_kvp.value;
+            result_kvp_value = (float)result_kvp.value;
             indices[idx] = result_kvp.key;
             source_rows[idx] = k_idx * num_rows + block_row;
         }
         __syncthreads();
+
+        for (int expert = threadIdx.x; expert < num_experts; expert += TPB) {
+            const int idx = thread_read_offset + expert;
+            factor[k_idx] = max(abs((float)inputs[idx]), result_kvp_value);
+            logits_mask[k_idx] = (result_kvp_value - (float)inputs[idx]) > (2 * jitter_eps * factor[k_idx]);
+            if (k_idx == 1 && expert == indices[K * block_row]) {
+                logits_mask[1] = true;
+            }
+        }
     }
 
     using BlockReduce = cub::BlockReduce<float, TPB>;
