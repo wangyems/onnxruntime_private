@@ -25,7 +25,7 @@ numpy.random.seed(42)
 
 ORT_DTYPE = TensorProto.FLOAT
 NP_TYPE = numpy.float16 if ORT_DTYPE == TensorProto.FLOAT16 else numpy.float32
-THRESHOLD = 3e-2
+THRESHOLD = 1e-4
 
 
 def value_string_of(numpy_array):
@@ -64,6 +64,7 @@ def create_moe_onnx_graph(
             "MoE_0",
             k=topk,
             normalize_routing_weights=0,
+            use_sparse_mixer=1,
             activation_type="silu",
             domain="com.microsoft",
         ),
@@ -169,9 +170,9 @@ class PhiMoEConfig:
         router_aux_loss_coef=0.001,
         router_jitter_noise=0.01,
         input_jitter_noise=0.01,
-        attention_bias = False,
-        lm_head_bias = False,
-        drop_reg = 0.0,
+        attention_bias=False,
+        lm_head_bias=False,
+        drop_reg=0.0,
     ):
         self.vocab_size = vocab_size
         self.hidden_size = hidden_size
@@ -223,6 +224,7 @@ class PhiMoEBlockSparseTop2MLP(nn.Module):
         current_hidden_states = self.w2(current_hidden_states)
         return current_hidden_states
 
+
 def masked_sampling_omp_inference(scores, top_k, jitter_eps, training):
     assert top_k == 2
     assert training == False
@@ -232,30 +234,24 @@ def masked_sampling_omp_inference(scores, top_k, jitter_eps, training):
     mask_logits_threshold_1 = mask_logits_threshold[:, 0].unsqueeze(-1)
 
     factor = scores.abs().clamp(min=mask_logits_threshold_1)
-    logits_mask = (
-        (mask_logits_threshold_1 - scores) / factor
-    ) > (2 * jitter_eps)
+    logits_mask = ((mask_logits_threshold_1 - scores) / factor) > (2 * jitter_eps)
 
-    multiplier_1 = torch.softmax(
-      scores.masked_fill(logits_mask, float('-inf')), dim=-1
-    ).gather(dim=-1, index=selected_experts[:, 0].unsqueeze(-1))
+    multiplier_1 = torch.softmax(scores.masked_fill(logits_mask, float("-inf")), dim=-1).gather(
+        dim=-1, index=selected_experts[:, 0].unsqueeze(-1)
+    )
 
     ################ second expert gating ################
 
     mask_logits_threshold_2 = mask_logits_threshold[:, 1].unsqueeze(-1)
 
     factor = scores.abs().clamp(min=mask_logits_threshold_2)
-    logits_mask = (
-        (mask_logits_threshold_2 - scores) / factor
-    ) > (2 * jitter_eps)
+    logits_mask = ((mask_logits_threshold_2 - scores) / factor) > (2 * jitter_eps)
 
     multiplier_2 = torch.softmax(
-      torch.scatter(
-        scores, -1, selected_experts[:, 0].unsqueeze(-1), float('-inf')
-      ).masked_fill(
-        logits_mask, float('-inf')
-      ),
-      dim=-1
+        torch.scatter(scores, -1, selected_experts[:, 0].unsqueeze(-1), float("-inf")).masked_fill(
+            logits_mask, float("-inf")
+        ),
+        dim=-1,
     ).gather(dim=-1, index=selected_experts[:, 1].unsqueeze(-1))
 
     multiplier = torch.concat((multiplier_1, multiplier_2), dim=-1)
@@ -377,7 +373,7 @@ class PhiMoESparseMoeBlock(nn.Module):
             final_hidden_states.index_add_(0, top_x, current_hidden_states.to(hidden_states.dtype))
         final_hidden_states = final_hidden_states.reshape(batch_size, sequence_length, hidden_dim)
 
-        return final_hidden_states #, router_logits
+        return final_hidden_states  # , router_logits
 
     def ort_forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
@@ -405,7 +401,7 @@ class PhiMoESparseMoeBlock(nn.Module):
         return None
 
     def parity_check(self):
-        hidden_state = torch.randn(self.batch_size, self.sequence_length, self.hidden_dim)
+        hidden_state = torch.randn(self.batch_size, self.sequence_length, self.hidden_dim) - 3
         torch_output = self.forward(hidden_state)
         ort_output = self.ort_forward(hidden_state)
         print("max diff:", (torch_output - ort_output).abs().max())
@@ -424,10 +420,10 @@ class PhiMoESparseMoeBlock(nn.Module):
 
 class TestMixtralMoE(unittest.TestCase):
     def test_phi3_moe_parity(self):
-        for batch_size in [1, 8]:
-            for sequence_length in [1, 64, 256, 1024]:
+        for batch_size in [1, 16]:
+            for sequence_length in [32, 128, 512, 1024]:
                 # use a small sizes to speed up the test
-                config = PhiMoEConfig(hidden_size=512, intermediate_size=1024)
+                config = PhiMoEConfig(hidden_size=256, intermediate_size=512)
                 phi3_moe = PhiMoESparseMoeBlock(config, batch_size, sequence_length)
                 phi3_moe.parity_check()
 
