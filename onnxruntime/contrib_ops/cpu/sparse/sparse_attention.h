@@ -5,24 +5,19 @@
 
 #include "core/common/common.h"
 #include "core/framework/op_kernel.h"
-#include "contrib_ops/cpu/bert/attention_cpu_base.h"
+#include "contrib_ops/cpu/bert/gqa_attention_base.h"
 
 namespace onnxruntime {
 namespace contrib {
 
 template <typename T>
-class MultiHeadAttention final : public OpKernel, public AttentionCPUBase {
+class SparseAttention final : public OpKernel, public GQAAttentionBase {
  public:
-  MultiHeadAttention(const OpKernelInfo& info);
+  SparseAttention(const OpKernelInfo& info);
   Status Compute(OpKernelContext* context) const override;
 
- protected:
-  int num_heads_;  // number of attention heads
-  float mask_filter_value_;
-  bool is_unidirectional_;
-  bool disable_flash_;
-  int l2_cache_size_;
-  int algo_;
+ private:
+  int sparse_block_size_;
 };
 
 }  // namespace contrib
