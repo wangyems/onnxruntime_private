@@ -1146,6 +1146,7 @@ template void topk_gating_softmax_kernelLauncher(const half *, const bool *, hal
 template class CutlassMoeFCRunner<float, float>;
 template class CutlassMoeFCRunner<half, half>;
 template class CutlassMoeFCRunner<half, cutlass::uint4b_t>;
+template class CutlassMoeFCRunner<half, uint8_t>;
 
 // ===================== Specializations for init routing =========================
 template void initialize_moe_routing_kernelLauncher(const float *, float *, const int *, int *, int, int, int, int,
