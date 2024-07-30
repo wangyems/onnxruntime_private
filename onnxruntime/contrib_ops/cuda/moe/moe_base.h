@@ -22,6 +22,7 @@ enum class MoEParallelType {
 enum class MoEQuantType {
   None = 0,
   UINT4 = 1,
+  UINT8 = 2,
 };
 
 struct MoEParameters {

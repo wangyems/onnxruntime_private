@@ -23,9 +23,10 @@ import onnxruntime
 torch.manual_seed(42)
 numpy.random.seed(42)
 
-ORT_DTYPE = TensorProto.FLOAT
+ORT_DTYPE = TensorProto.FLOAT16
 NP_TYPE = numpy.float16 if ORT_DTYPE == TensorProto.FLOAT16 else numpy.float32
-THRESHOLD = 1e-4
+USE_QUANT = True
+THRESHOLD = 3e-1 if USE_QUANT else 3e-2
 
 
 def value_string_of(numpy_array):
@@ -38,6 +39,26 @@ def print_tensor(name, numpy_array):
     print(f"const std::vector<float> {name} = {value_string_of(numpy_array)};")
 
 
+def quant_dequant(weights, quant_mode: bool = True):
+    # use the test version `_symmetric_...` to get the non-interleaved weights
+    type = torch.quint4x2 if quant_mode else torch.int8
+    import tensorrt_llm
+
+    quant_weights, processed_q_weight, torch_weight_scales = (
+        torch.ops.trtllm._symmetric_quantize_last_axis_of_batched_matrix(weights.T.cpu().contiguous(), type)
+    )
+
+    # Unpack the int4s int int8s
+    if quant_mode:
+        upper = quant_weights >> 4
+        lower = (quant_weights << 4) >> 4  # Arithmetic right shift sign extends
+        quant_weights = torch.stack((lower, upper), dim=2).view(weights.T.shape)
+
+    quant_weights = quant_weights.to(dtype=weights.dtype)
+    result = torch.multiply(quant_weights, torch_weight_scales.unsqueeze(0)).T.contiguous()
+    return torch_weight_scales.to(torch.float16), processed_q_weight, result.to(device=weights.device)
+
+
 def create_moe_onnx_graph(
     num_rows,
     num_experts,
@@ -46,20 +67,51 @@ def create_moe_onnx_graph(
     fc1_experts_weights,
     fc2_experts_weights,
     fc3_experts_weights,
+    fc1_scales,
+    fc2_scales,
+    fc3_scales,
     topk,
 ):
+    use_quant = USE_QUANT
+    if use_quant:
+        assert fc1_experts_weights.dtype == torch.int8
+        assert fc2_experts_weights.dtype == torch.int8
+        assert fc3_experts_weights.dtype == torch.int8
+        assert fc1_scales is not None
+        assert fc2_scales is not None
+        assert fc3_scales is not None
+        assert fc1_scales.dtype == torch.float16
+        assert fc2_scales.dtype == torch.float16
+        assert fc3_scales.dtype == torch.float16
+
     nodes = [
         helper.make_node(
-            "MoE",
-            [
-                "input",
-                "router_probs",
-                "fc1_experts_weights",
-                "",
-                "fc2_experts_weights",
-                "",
-                "fc3_experts_weights",
-            ],
+            "MoE" if not use_quant else "QMoE8Bits",
+            (
+                [
+                    "input",
+                    "router_probs",
+                    "fc1_experts_weights",
+                    "",
+                    "fc2_experts_weights",
+                    "",
+                    "fc3_experts_weights",
+                ]
+                if not use_quant
+                else [
+                    "input",
+                    "router_probs",
+                    "fc1_experts_weights",
+                    "fc1_scales",
+                    "",
+                    "fc2_experts_weights",
+                    "fc2_scales",
+                    "",
+                    "fc3_experts_weights",
+                    "fc3_scales",
+                    "",
+                ]
+            ),
             ["output"],
             "MoE_0",
             k=topk,
@@ -70,35 +122,70 @@ def create_moe_onnx_graph(
         ),
     ]
 
-    fc1_shape = [num_experts, hidden_size, inter_size]
-    fc2_shape = [num_experts, inter_size, hidden_size]
-    fc3_shape = [num_experts, hidden_size, inter_size]
+    feature_size_modifier = 1 if not use_quant else 1
+
+    fc1_shape = [num_experts, hidden_size, inter_size // feature_size_modifier]
+    fc2_shape = [num_experts, inter_size, hidden_size // feature_size_modifier]
+    fc3_shape = [num_experts, hidden_size, inter_size // feature_size_modifier]
 
     torch_type = torch.float16 if ORT_DTYPE == TensorProto.FLOAT16 else torch.float32
+    numpy_type = numpy.float16 if ORT_DTYPE == TensorProto.FLOAT16 else numpy.float32
+    if use_quant:
+        numpy_type = numpy.uint8
 
     initializers = [
         helper.make_tensor(
             "fc1_experts_weights",
-            ORT_DTYPE,
+            ORT_DTYPE if not use_quant else TensorProto.UINT8,
             fc1_shape,
-            fc1_experts_weights.to(torch_type).flatten().tolist(),
+            fc1_experts_weights.flatten().numpy().astype(numpy_type).tolist(),
             raw=False,
         ),
         helper.make_tensor(
             "fc2_experts_weights",
-            ORT_DTYPE,
+            ORT_DTYPE if not use_quant else TensorProto.UINT8,
             fc2_shape,
-            fc2_experts_weights.to(torch_type).flatten().tolist(),
+            fc2_experts_weights.flatten().numpy().astype(numpy_type).tolist(),
             raw=False,
         ),
         helper.make_tensor(
             "fc3_experts_weights",
-            ORT_DTYPE,
+            ORT_DTYPE if not use_quant else TensorProto.UINT8,
             fc3_shape,
-            fc3_experts_weights.to(torch_type).flatten().tolist(),
+            fc3_experts_weights.flatten().numpy().astype(numpy_type).tolist(),
             raw=False,
         ),
     ]
+
+    if use_quant:
+        fc1_scale_shape = [num_experts, inter_size]
+        fc2_scale_shape = [num_experts, hidden_size]
+        fc3_scale_shape = [num_experts, inter_size]
+        initializers.extend(
+            [
+                helper.make_tensor(
+                    "fc1_scales",
+                    ORT_DTYPE,
+                    fc1_scale_shape,
+                    fc1_scales.to(torch_type).flatten().tolist(),
+                    raw=False,
+                ),
+                helper.make_tensor(
+                    "fc2_scales",
+                    ORT_DTYPE,
+                    fc2_scale_shape,
+                    fc2_scales.to(torch_type).flatten().tolist(),
+                    raw=False,
+                ),
+                helper.make_tensor(
+                    "fc3_scales",
+                    ORT_DTYPE,
+                    fc3_scale_shape,
+                    fc3_scales.to(torch_type).flatten().tolist(),
+                    raw=False,
+                ),
+            ]
+        )
 
     graph_inputs = [
         helper.make_tensor_value_info("input", ORT_DTYPE, [num_rows, hidden_size]),
@@ -290,14 +377,38 @@ class PhiMoESparseMoeBlock(nn.Module):
         w1_list = []
         w2_list = []
         w3_list = []
-        for i in range(self.num_experts):
-            w1_list.append(self.experts[i].w1.weight)
-            w2_list.append(self.experts[i].w2.weight)
-            w3_list.append(self.experts[i].w3.weight)
+        w1_scale_list = []
+        w2_scale_list = []
+        w3_scale_list = []
+        if not USE_QUANT:
+            for i in range(self.num_experts):
+                w1_list.append(self.experts[i].w1.weight)
+                w2_list.append(self.experts[i].w2.weight)
+                w3_list.append(self.experts[i].w3.weight)
+        else:
+            for i in range(self.num_experts):
+                w1_scale, pre_qweight1, w1_qdq = quant_dequant(self.experts[i].w1.weight, False)
+                w2_scale, pre_qweight2, w2_qdq = quant_dequant(self.experts[i].w2.weight, False)
+                w3_scale, pre_qweight3, w3_qdq = quant_dequant(self.experts[i].w3.weight, False)
+
+                self.experts[i].w1.weight.data = w1_qdq
+                self.experts[i].w2.weight.data = w2_qdq
+                self.experts[i].w3.weight.data = w3_qdq
+
+                w1_list.append(pre_qweight1)
+                w2_list.append(pre_qweight2)
+                w3_list.append(pre_qweight3)
+                w1_scale_list.append(w1_scale)
+                w2_scale_list.append(w2_scale)
+                w3_scale_list.append(w3_scale)
 
         self.moe_experts_weight1 = torch.stack(w1_list, dim=0)
         self.moe_experts_weight2 = torch.stack(w2_list, dim=0)
         self.moe_experts_weight3 = torch.stack(w3_list, dim=0)
+
+        moe_experts_weight_scale1 = torch.stack(w1_scale_list, dim=0) if USE_QUANT else None
+        moe_experts_weight_scale2 = torch.stack(w2_scale_list, dim=0) if USE_QUANT else None
+        moe_experts_weight_scale3 = torch.stack(w3_scale_list, dim=0) if USE_QUANT else None
 
         self.batch_size = batch_size
         self.sequence_length = sequence_length
@@ -309,6 +420,9 @@ class PhiMoESparseMoeBlock(nn.Module):
             self.moe_experts_weight1,
             self.moe_experts_weight2,
             self.moe_experts_weight3,
+            moe_experts_weight_scale1,
+            moe_experts_weight_scale2,
+            moe_experts_weight_scale3,
             self.top_k,
         )
 
@@ -401,10 +515,9 @@ class PhiMoESparseMoeBlock(nn.Module):
         return None
 
     def parity_check(self):
-        hidden_state = torch.randn(self.batch_size, self.sequence_length, self.hidden_dim) - 3
+        hidden_state = torch.randn(self.batch_size, self.sequence_length, self.hidden_dim)
         torch_output = self.forward(hidden_state)
         ort_output = self.ort_forward(hidden_state)
-        print("max diff:", (torch_output - ort_output).abs().max())
         if ort_output is not None:
             assert torch.allclose(torch_output, ort_output.to(torch.float32), rtol=THRESHOLD, atol=THRESHOLD)
             print(
@@ -421,9 +534,9 @@ class PhiMoESparseMoeBlock(nn.Module):
 class TestMixtralMoE(unittest.TestCase):
     def test_phi3_moe_parity(self):
         for batch_size in [1, 16]:
-            for sequence_length in [32, 128, 512, 1024]:
+            for sequence_length in [32, 128, 512, 2048]:
                 # use a small sizes to speed up the test
-                config = PhiMoEConfig(hidden_size=256, intermediate_size=512)
+                config = PhiMoEConfig(hidden_size=1024, intermediate_size=2048)
                 phi3_moe = PhiMoESparseMoeBlock(config, batch_size, sequence_length)
                 phi3_moe.parity_check()
 
