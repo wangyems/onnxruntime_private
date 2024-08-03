@@ -170,8 +170,8 @@ __launch_bounds__(TPB) __global__
 #endif
 
 #if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 530
-template <typename T, int TPB>
-__launch_bounds__(TPB) __global__ void sparse_mixer_top2(const T *, T *, int *, int *, float) {
+template <typename T, int TPB, int NUM_EXPERTS>
+__launch_bounds__(TPB) __global__ void sparse_mixer_top2(const T *, T *, int *, int *, const float) {
     // Does not support pre-Kepler architectures
     ;
 }
@@ -179,7 +179,7 @@ __launch_bounds__(TPB) __global__ void sparse_mixer_top2(const T *, T *, int *, 
 
 template <typename T, int TPB, int NUM_EXPERTS>
 __launch_bounds__(TPB) __global__
-    void sparse_mixer_top2(const T *inputs, T *output, int *indices, int *source_rows, float jitter_eps) {
+    void sparse_mixer_top2(const T *inputs, T *output, int *indices, int *source_rows, const float jitter_eps) {
     static constexpr int K = 2;
 
     using cub_kvp = cub::KeyValuePair<int, T>;
